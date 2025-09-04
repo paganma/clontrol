@@ -155,13 +155,40 @@
         (unmark-recur-path return child-node)))
     node))
 
+(defn mark-direct-recur-target
+  [return node]
+    (if (node/tail-node? node)
+      (if (node/every-child?
+           (fn [child-node]
+             (or (node/tail-node? child-node)
+                 (:direct? child-node)))
+           node)
+        (if (= (:op node) :recur)
+          (return (assoc node :direct-target? true))
+          (node/update-children
+           return
+           (fn [return child-node]
+             (if (node/tail-node? child-node)
+               #(mark-direct-recur-target return child-node)
+               (return child-node)))
+           node))
+        (return node))
+      (return node)))
+
 (defn mark-loop
   [return loop-node]
   (mark-children
    (fn [loop-node]
      (if (node/every-child? :direct? loop-node)
        (return (assoc loop-node :direct? true))
-       (unmark-recur-path return loop-node)))
+       (unmark-recur-path
+        (fn [loop-node]
+          (mark-direct-recur-target
+           (fn [body-node]
+             (return
+              (assoc loop-node :body body-node)))
+           (:body loop-node)))
+        loop-node)))
    loop-node))
 
 (defmethod mark
