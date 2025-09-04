@@ -811,7 +811,12 @@
       (fn [function-form]
         (return
          (with-node-meta
-           (list* loop-symbol function-form argument-forms)
+           (list*
+            (if (:direct-target? recur-node)
+              'recur
+              loop-symbol)
+            function-form
+            argument-forms)
            recur-node)))
       plug))
    argument-nodes))
