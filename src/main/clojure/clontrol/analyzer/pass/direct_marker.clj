@@ -63,6 +63,8 @@
 
 (declare unmark-recur-path)
 
+(declare mark-direct-recur-target)
+
 (defn mark-direct
   "Recursively marks a top-level `node` as `:direct?`. 
 
@@ -79,7 +81,10 @@
    (mark
     (fn [node]
       (if (node/tail-node? node)
-        (unmark-recur-path return node)
+        (unmark-recur-path
+         (fn [node]
+           (mark-direct-recur-target return node))
+         node)
         (return node)))
     node)))
 
