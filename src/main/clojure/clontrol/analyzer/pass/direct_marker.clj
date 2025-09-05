@@ -181,11 +181,7 @@
        (return (assoc loop-node :direct? true))
        (unmark-recur-path
         (fn [loop-node]
-          (mark-direct-recur-target
-           (fn [body-node]
-             (return
-              (assoc loop-node :body body-node)))
-           (:body loop-node)))
+          (mark-direct-recur-target return loop-node))
         loop-node)))
    loop-node))
 
