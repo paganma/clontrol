@@ -2106,3 +2106,23 @@
              (is (= b 1))
              2))]
      (is (= a 2)))))
+
+;;;; * Direct-target recur
+
+(deftest test-direct-target-recur
+  (is (= (reset
+          (loop [n 0]
+            (if (< n 1000000)
+              (recur (inc n))
+              (shift (fn [k] (k 42))))))
+         42))
+
+  (let [do-loop
+        (fn-shift
+         [n]
+         (if (< n 1000000)
+           (recur (inc n))
+           (shift (fn [k] (k 42)))))]
+    (is (= (reset
+            (do-loop 0))
+           42))))
