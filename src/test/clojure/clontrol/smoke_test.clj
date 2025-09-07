@@ -2114,7 +2114,7 @@
           (loop [n 0]
             (if (< n 1000000)
               (recur (inc n))
-              (shift (fn [k] (k 42))))))
+              (smoke 42))))
          42))
 
   (let [do-loop
@@ -2122,7 +2122,7 @@
          [n]
          (if (< n 1000000)
            (recur (inc n))
-           (shift (fn [k] (k 42)))))]
+           (smoke 42)))]
     (is (= (reset
             (do-loop 0))
            42))))
