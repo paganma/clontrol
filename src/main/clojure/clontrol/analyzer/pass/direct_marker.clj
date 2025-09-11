@@ -91,8 +91,11 @@
   (node/update-children return mark node))
 
 (defn mark-expression
-  "Marks an expression as `:direct?`. An expression can be marked direct if and
-  only if all of its children are also direct."
+  "Marks an expression as `:direct?` using the following strategy:
+
+  - An expression node in [[*direct-operations*]] is always marked as direct.
+  - An expression node in [[*compound-direct-operations*]] can be marked as direct
+  if and only if all of its children are also direct."
   [return
    {operation :op
     :as node}]
