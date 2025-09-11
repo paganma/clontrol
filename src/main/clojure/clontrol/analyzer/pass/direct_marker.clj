@@ -122,15 +122,15 @@
 
 (defn mark-invoke
   [return invoke-node]
-  #(mark-children
-    (fn [{function-node :fn
-          :as invoke-node}]
-      (return
-       (if (and (= (read-function-type function-node) :direct)
-                (node/every-child? :direct? invoke-node))
-         (assoc invoke-node :direct? true)
-         invoke-node)))
-    invoke-node))
+  (mark-children
+   (fn [{function-node :fn
+         :as invoke-node}]
+     (return
+      (if (and (= (read-function-type function-node) :direct)
+               (node/every-child? :direct? invoke-node))
+        (assoc invoke-node :direct? true)
+        invoke-node)))
+   invoke-node))
 
 (defmethod mark
   :invoke
@@ -139,24 +139,23 @@
 
 (defn unmark-recur-path
   [return node]
-  #(node/update-tails
-    (fn [{operation :op
-          :as node}]
-      (return
-       (if (and
-            (:direct? node)
-            (or 
-             (= operation :recur)
-             (not (node/every-tail? :direct? node))))
-         (dissoc node :direct?)
-         node)))
-    (fn [return
-         {operation :op
-          :as child-node}]
-      (if (= operation :loop)
-        (return child-node)
-        (unmark-recur-path return child-node)))
-    node))
+  (node/update-tails
+   (fn [{operation :op
+         :as node}]
+     (return
+      (if (and
+           (:direct? node)
+           (or (= operation :recur)
+               (not (node/every-tail? :direct? node))))
+        (dissoc node :direct?)
+        node)))
+   (fn [return
+        {operation :op
+         :as child-node}]
+     (if (= operation :loop)
+       (return child-node)
+       #(unmark-recur-path return child-node)))
+   node))
 
 (defn mark-loop
   [return loop-node]
