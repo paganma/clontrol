@@ -3,6 +3,8 @@
   (:require
    [clojure.tools.analyzer.passes
     :refer [schedule]]
+   [clontrol.analyzer.pass.recur-dominator-marker
+    :refer [mark-recur-dominator]]
    [clontrol.analyzer.pass.function-type-reader
     :refer [read-function-type]]
    [clontrol.analyzer.node
@@ -72,7 +74,8 @@
   If `node` is in the tail context, `recur` operations will also be treated as
   indirect operations."
   {:pass-info
-   {:walk :none}}
+   {:depends #{#'mark-recur-dominator}
+    :walk :none}}
   ([node]
    (trampoline mark-direct identity node))
   ([return node]
@@ -140,13 +143,9 @@
 (defn unmark-recur-path
   [return node]
   (node/update-tails
-   (fn [{operation :op
-         :as node}]
+   (fn [node]
      (return
-      (if (and
-           (:direct? node)
-           (or (= operation :recur)
-               (not (node/every-tail? :direct? node))))
+      (if (:recur-dominator? node)
         (dissoc node :direct?)
         node)))
    (fn [return
