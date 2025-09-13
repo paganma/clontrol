@@ -2156,15 +2156,3 @@
                (smoke b)
                (recur b (+ a b)))))
          2178309)))
-
-(clojure.pprint/pprint
- (clojure.walk/macroexpand-all
-  '(reset
-     (loop [n 0]
-       (do
-         (if false
-           (shift identity)
-           nil)
-         (if (< n 1000)
-           (recur (inc n))
-           n))))))
