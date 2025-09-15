@@ -7,7 +7,6 @@
     :refer [-source-info]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [hole->continuation-form
-            reify-hole
             continuation-form->hole]]
    [clontrol.analyzer.pass.validator
     :refer [validate]]
@@ -275,30 +274,28 @@
   (emit-value
    return
    (fn [return test-form]
-     (reify-hole
-      (fn [plug-case plug-branch]
-        (emit-case-map
-         (fn [case-map]
-           (emit-value
-            (fn [default-form]
-              (plug-case
-               return
-               (with-node-meta
-                 `(case*
-                   ~test-form
-                   ~shift ~mask
-                   ~default-form
-                   ~case-map
-                   ~switch-type
-                   ~test-type
-                   ~skip-set)
-                 case-node)))
-            plug-branch
-            default-node))
-         plug-branch
-         match-nodes
-         then-nodes))
-      plug))
+     (emit-case-map
+      (fn [case-map]
+        (emit-value
+         (fn [default-form]
+           (plug
+            return
+            (with-node-meta
+              `(case*
+                ~test-form
+                ~shift ~mask
+                ~default-form
+                ~case-map
+                ~switch-type
+                ~test-type
+                ~skip-set)
+              case-node)))
+         plug
+         default-node))
+      plug
+      match-nodes
+      then-nodes)
+     plug)
    test-node))
 
 (defmethod emit
@@ -439,22 +436,20 @@
   (emit-value
    return
    (fn [return test-form]
-     (reify-hole
-      (fn [plug-if plug-branch]
+     (emit-tail
+      (fn [then-form]
         (emit-tail
-         (fn [then-form]
-           (emit-tail
-            (fn [else-form]
-              (plug-if
-               return
-               (with-node-meta
-                 `(if ~test-form ~then-form ~else-form)
-                 if-node)))
-            plug-branch
-            else-node))
-         plug-branch
-         then-node))
-      plug))
+         (fn [else-form]
+           (plug
+            return
+            (with-node-meta
+              `(if ~test-form ~then-form ~else-form)
+              if-node)))
+         plug
+         else-node))
+      plug
+      then-node)
+     plug)
    test-node))
 
 (defmethod emit
@@ -1032,22 +1027,20 @@
    {body-node :body
     catch-nodes :catches
     :as try-node}]
-  (reify-hole
-   (fn [plug-try plug-tail]
-     (emit-tail
-      (fn [body-form]
-        (emit-catches
-         (fn [catch-forms]
-           (plug-try
-            return
-            (with-node-meta
-              (list* `try body-form catch-forms)
-              try-node)))
-         plug-tail
-         catch-nodes))
-      plug-tail
-      body-node))
-   plug))
+  (emit-tail
+   (fn [body-form]
+     (emit-catches
+      (fn [catch-forms]
+        (plug
+         return
+         (with-node-meta
+           (list* `try body-form catch-forms)
+           try-node)))
+      plug
+      catch-nodes))
+   plug
+   body-node)
+  plug)
 
 (defn emit-try-finally
   [return
