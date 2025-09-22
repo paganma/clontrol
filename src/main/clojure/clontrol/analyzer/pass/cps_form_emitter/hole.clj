@@ -1,7 +1,8 @@
 (ns clontrol.analyzer.pass.cps-form-emitter.hole
   (:require
    [clontrol.analyzer.pass.form-builder
-    :refer [prepend-binding]]))
+    :refer [prepend-binding
+            build-recur-tail]]))
 
 (def plug-into-identity
   ^{:function-form `identity}
@@ -20,11 +21,10 @@
   [return plug]
   (if-let [function-form (:function-form (meta plug))]
     (return function-form)
-    (let [argument-symbol (gensym "x__")]
-      (plug
-       (fn [body-form]
-         (return `(fn* ([~argument-symbol] ~body-form))))
-       argument-symbol))))
+    (let [argument-symbol (gensym "x__")
+          body-form (trampoline plug identity argument-symbol)
+          body-form (build-recur-tail body-form :build-indirect)]
+      (return `(fn* ([~argument-symbol] ~body-form))))))
 
 (defn reify-hole
   "Reifies `plug` into a continuation form `phi` and returns two holes:
