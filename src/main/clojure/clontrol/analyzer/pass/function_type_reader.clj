@@ -17,9 +17,11 @@
   if it is a direct function, `:shift` if it is a shift function, or `:unknown`
   if the type cannot be determined."
   [function-node]
-  (cond
-    (read-meta function-node *direct-function-tag*) :direct
-    (read-meta function-node *shift-function-tag*) :shift
-    (*direct-function-tag* (meta (read-meta function-node :ns))) :direct
-    (*shift-function-tag* (meta (read-meta function-node :ns))) :shift
-    :else :unknown))
+  (let [function-meta (read-meta function-node)
+        namespace-meta (meta (:ns function-meta))]
+    (cond
+      (*direct-function-tag* function-meta) :direct
+      (*shift-function-tag* function-meta) :shift
+      (*direct-function-tag* namespace-meta) :direct
+      (*shift-function-tag* namespace-meta) :shift
+      :else :unknown)))
