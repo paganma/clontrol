@@ -1,13 +1,6 @@
 (ns clontrol.function.shifter
   "The interface for a shifter")
 
-(defn- throw-out-of-prompt-exception
-  [this]
-  (throw
-   (ex-info
-    (str this " can only be invoked within a continuation prompt.")
-    {})))
-
 (def ^:private ^:const shifter-arities 18)
 
 (def ^:private ^:const function-arities 21)
@@ -41,6 +34,8 @@
 (def-Shifter-protocol
   Shifter)
 
+(declare ^:private throw-out-of-prompt-exception)
+
 (defmacro ^:private def-FnShift-type
   {:clj-kondo/lint-as 'clojure.core/deftype}
   [name-symbol]
@@ -50,23 +45,30 @@
           {:tag 'clojure.lang.IFn})]
     `(deftype ~name-symbol
          [~handler-symbol]
-       Shifter
-       ~@(for [parameter-symbols (make-parameter-arities shifter-arities)]
-           `(invoke-shift
-             [~'this ~'return ~@parameter-symbols]
-             (~handler-symbol ~'return ~@parameter-symbols)))
-       (apply-shift
-         [~'this ~'return ~'ps]
-         (. ~handler-symbol applyTo (list* ~'return ~'ps)))
+         Shifter
+         ~@(for [parameter-symbols (make-parameter-arities shifter-arities)]
+             `(invoke-shift
+               [~'this ~'return ~@parameter-symbols]
+               (~handler-symbol ~'return ~@parameter-symbols)))
+         (apply-shift
+           [~'this ~'return ~'ps]
+           (. ~handler-symbol applyTo (list* ~'return ~'ps)))
 
-       clojure.lang.IFn
-       ~@(for [parameter-symbols (make-parameter-arities function-arities)]
-           `(invoke
-             [~'this ~@parameter-symbols]
-             (throw-out-of-prompt-exception ~'this))))))
+         clojure.lang.IFn
+         ~@(for [parameter-symbols (make-parameter-arities function-arities)]
+             `(invoke
+               [~'this ~@parameter-symbols]
+               (throw-out-of-prompt-exception ~'this))))))
 
 (def-FnShift-type
   FnShift)
+
+(defn- throw-out-of-prompt-exception
+  [^clontrol.function.shifter.FnShift this]
+  (throw
+   (ex-info
+    (str this " can only be invoked within a continuation prompt.")
+    {:handler (.run-with-continuation this)})))
 
 (defmacro ^:private def-invoke-unknown-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
