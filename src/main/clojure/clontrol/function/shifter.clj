@@ -68,7 +68,7 @@
 (def-FnShift-type
   FnShift)
 
-(defmacro ^:private def-call-unknown-fn
+(defmacro ^:private def-invoke-unknown-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
   [name-symbol]
   (let [shifter-class-symbol 'clontrol.function.shifter.Shifter
@@ -90,5 +90,5 @@
               (. ~shifter-symbol apply-shift ~return-symbol ~argument-form)
               (~return-symbol (~function-symbol ~argument-form))))))))
 
-(def-call-unknown-fn
+(def-invoke-unknown-fn
   invoke-unknown)
