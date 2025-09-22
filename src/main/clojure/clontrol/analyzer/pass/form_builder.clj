@@ -41,3 +41,13 @@
         `(construct-statements ~statement-forms'))
       `(construct-statements (~statement-form ~form)))
     (meta form)))
+
+(defrecord RecurTailBuilder
+    [build-direct build-indirect])
+
+(defn build-recur-tail
+  [value accessor]
+  (loop [value value]
+    (if (instance? RecurTailBuilder value)
+      (recur (trampoline (accessor value)))
+      value)))
