@@ -572,13 +572,15 @@
                        continuation-form
                        argument-forms)
                       invoke-node)
-                   (let [~result-symbol
-                         ~(with-node-meta
-                            (list*
-                             function-form
-                             argument-forms)
-                            invoke-node)]
-                     ~body-form)))))
+                   ~(prepend-binding
+                     body-form
+                     'let*
+                     result-symbol
+                     (with-node-meta
+                       (list*
+                        function-form
+                        argument-forms)
+                       invoke-node))))))
            plug)))
       argument-nodes))
    function-node))
