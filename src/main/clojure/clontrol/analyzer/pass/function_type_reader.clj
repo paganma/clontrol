@@ -4,11 +4,29 @@
    [clontrol.analyzer.pass.meta-reader
     :refer [read-meta]]))
 
-(def ^:dynamic *direct-function-tag*
+(defn- find-namespaces
+  [pattern]
+  (into
+   #{}
+   (filter
+    (fn [namespace]
+      (re-find pattern (str namespace))))
+   (all-ns)))
+
+(def ^:private ^:const direct-namespace-pattern
+  (re-pattern "clojure\\..*"))
+
+(def ^:dynamic *direct-namespaces*
+  (find-namespaces direct-namespace-pattern))
+
+(def ^:dynamic *shift-namespaces*
+  #{})
+
+(def ^:dynamic *direct-tag*
   "Meta-tag used to mark direct functions."
   :direct)
 
-(def ^:dynamic *shift-function-tag*
+(def ^:dynamic *shift-tag*
   "Meta-tag used to mark shift functions."
   :shift)
 
@@ -18,10 +36,13 @@
   if the type cannot be determined."
   [function-node]
   (let [function-meta (read-meta function-node)
-        namespace-meta (meta (:ns function-meta))]
+        namespace (:ns function-meta)
+        namespace-meta (meta namespace)]
     (cond
-      (*direct-function-tag* function-meta) :direct
-      (*shift-function-tag* function-meta) :shift
-      (*direct-function-tag* namespace-meta) :direct
-      (*shift-function-tag* namespace-meta) :shift
+      (*direct-tag* function-meta) :direct
+      (*shift-tag* function-meta) :shift
+      (*direct-tag* namespace-meta) :direct
+      (*shift-tag* namespace-meta) :shift
+      (*direct-namespaces* namespace) :direct
+      (*shift-namespaces* namespace) :direct
       :else :unknown)))
