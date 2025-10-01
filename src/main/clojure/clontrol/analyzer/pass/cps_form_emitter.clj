@@ -7,6 +7,7 @@
     :refer [-source-info]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [hole->continuation-form
+            reify-hole
             continuation-form->hole]]
    [clontrol.analyzer.pass.validator
     :refer [validate]]
@@ -284,7 +285,6 @@
   (emit-value
    return
    (fn [return test-form]
-<<<<<<< HEAD
      (reify-hole
       (fn [plug-case plug-branch]
         (emit-case-map
@@ -308,30 +308,6 @@
          match-nodes
          then-nodes))
       plug))
-=======
-     (emit-case-map
-      (fn [case-map]
-        (emit-value
-         (fn [default-form]
-           (plug
-            return
-            (with-node-meta
-              `(case*
-                ~test-form
-                ~shift ~mask
-                ~default-form
-                ~case-map
-                ~switch-type
-                ~test-type
-                ~skip-set)
-              case-node)))
-         plug
-         default-node))
-      plug
-      match-nodes
-      then-nodes)
-     plug)
->>>>>>> refs/rewritten/1-prevent-stack-overflows-in-indirect-loops
    test-node))
 
 (defmethod emit
@@ -476,24 +452,14 @@
       (fn [then-form]
         (emit-tail
          (fn [else-form]
-<<<<<<< HEAD
            (return
-=======
-           (plug
-            return
->>>>>>> refs/rewritten/1-prevent-stack-overflows-in-indirect-loops
             (with-node-meta
               `(if ~test-form ~then-form ~else-form)
               if-node)))
          plug
          else-node))
       plug
-<<<<<<< HEAD
       then-node))
-=======
-      then-node)
-     plug)
->>>>>>> refs/rewritten/1-prevent-stack-overflows-in-indirect-loops
    test-node))
 
 (defmethod emit
@@ -606,13 +572,15 @@
                        continuation-form
                        argument-forms)
                       invoke-node)
-                   (let [~result-symbol
-                         ~(with-node-meta
-                            (list*
-                             function-form
-                             argument-forms)
-                            invoke-node)]
-                     ~body-form)))))
+                   ~(prepend-binding
+                     body-form
+                     'let*
+                     result-symbol
+                     (with-node-meta
+                       (list*
+                        function-form
+                        argument-forms)
+                       invoke-node))))))
            plug)))
       argument-nodes))
    function-node))
@@ -1088,20 +1056,22 @@
    {body-node :body
     catch-nodes :catches
     :as try-node}]
-  (emit-tail
-   (fn [body-form]
-     (emit-catches
-      (fn [catch-forms]
-        (plug
-         return
-         (with-node-meta
-           (list* `try body-form catch-forms)
-           try-node)))
-      plug
-      catch-nodes))
-   plug
-   body-node)
-  plug)
+  (reify-hole
+   (fn [plug-try plug-tail]
+     (emit-tail
+      (fn [body-form]
+        (emit-catches
+         (fn [catch-forms]
+           (plug-try
+            return
+            (with-node-meta
+              (list* `try body-form catch-forms)
+              try-node)))
+         plug-tail
+         catch-nodes))
+      plug-tail
+      body-node))
+   plug))
 
 (defn emit-try-finally
   [return
