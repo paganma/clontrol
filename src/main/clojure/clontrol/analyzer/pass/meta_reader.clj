@@ -19,8 +19,10 @@
   [{local-symbol :form
     {locals-environment :locals} :env}]
   (merge
-   (-> local-symbol :form meta)
-   (-> (local-symbol locals-environment) :form meta)))
+   (-> local-symbol
+       :form meta)
+   (-> (local-symbol locals-environment)
+       :form meta)))
 
 (defmethod read-meta
   :local
