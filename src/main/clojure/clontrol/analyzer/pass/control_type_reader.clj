@@ -1,4 +1,4 @@
-(ns clontrol.analyzer.pass.function-type-reader
+(ns clontrol.analyzer.pass.control-type-reader
   "Utilities to tag the control type of a function."
   (:require
    [clontrol.analyzer.pass.meta-reader
@@ -30,7 +30,7 @@
   "Meta-tag used to mark shift functions."
   :shift)
 
-(defn read-function-type
+(defn read-control-type
   "Reads the function type of an AST `function-node`, returning either `:direct`
   if it is a direct function, `:shift` if it is a shift function, or `:unknown`
   if the type cannot be determined."
