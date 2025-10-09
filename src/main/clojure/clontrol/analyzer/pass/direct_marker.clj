@@ -76,7 +76,7 @@
   ([return node]
    (mark
     (fn [node]
-      (if (node/tail-node? node)
+      (if (node/tail? node)
         (unmark-recur-path return node)
         (return node)))
     node)))
