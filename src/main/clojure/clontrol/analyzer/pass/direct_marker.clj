@@ -18,8 +18,6 @@
     :import
     :keyword
     :local
-    :maybe-class
-    :maybe-host-form
     :quote
     :reify
     :static-field
