@@ -3,8 +3,8 @@
   (:require
    [clojure.tools.analyzer.passes
     :refer [schedule]]
-   [clontrol.analyzer.pass.function-type-reader
-    :refer [read-function-type]]
+   [clontrol.analyzer.pass.control-type-reader
+    :refer [read-control-type]]
    [clontrol.analyzer.node
     :as node]))
 
