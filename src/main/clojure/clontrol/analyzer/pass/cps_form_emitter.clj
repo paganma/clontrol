@@ -5,27 +5,29 @@
     :refer [schedule]]
    [clojure.tools.analyzer.utils
     :refer [-source-info]]
+   [clontrol.analyzer.pass.control-type-reader
+    :refer [read-control-type]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
-    :refer [hole->continuation-form
+    :refer [continuation-form->hole
+            plug-into-identity
             reify-hole
-            continuation-form->hole]]
-   [clontrol.analyzer.pass.validator
-    :refer [validate]]
+            hole->continuation-form
+            *in-continuation?*]]
    [clontrol.analyzer.pass.direct-marker
     :refer [mark-direct]]
-   [clontrol.analyzer.pass.shadowings-tagger
-    :refer [tag-shadowings]]
    [clontrol.analyzer.pass.form-builder
-    :refer [build-recur-tail
-            construct-bindings
+    :refer [construct-bindings
             prepend-binding
             construct-statements
-            prepend-statement
-            ->RecurTailBuilder]]
-   [clontrol.analyzer.pass.function-type-reader
-    :refer [read-function-type]]
+            prepend-statement]]
    [clontrol.analyzer.pass.pure-marker
     :refer [mark-pure]]
+   [clontrol.analyzer.pass.recur-dominator-marker
+    :refer [mark-recur-dominator]]
+   [clontrol.analyzer.pass.shadowings-tagger
+    :refer [tag-shadowings]]
+   [clontrol.analyzer.pass.validator
+    :refer [validate]]
    [clontrol.function.shifter
     :refer [invoke-shift]]))
 
@@ -90,13 +92,6 @@
     (*emit-direct* return plug node)    
     (emit return plug node)))
 
-(defn emit-recur-tail
-  [return plug node]
-  (return
-   (build-recur-tail
-    (trampoline emit-tail identity plug node)
-    :build-direct)))
-
 (defn emit-cps-form
   "Emits the CPS form of `node` yielding its result to a continuation form. 
   
@@ -107,23 +102,22 @@
   yielded. Defaults to ``identity`."
   {:pass-info
    {:walk :none
-    :depends #{#'validate
-               #'mark-direct
+    :depends #{#'mark-direct
                #'mark-pure
-               #'tag-shadowings}}}
+               #'mark-recur-dominator
+               #'tag-shadowings
+               #'validate}}}
   ([node]
-   (trampoline emit-cps-form identity node))
-  ([return node]
    (let [passes-options
          (-> node :env :passes-opts)
          continuation-form
          (:cps-form-emitter/continuation-form passes-options `identity)]
-     (continuation-form->hole
-      (fn [plug]
-        (if (= (-> node :env :context) :ctx/return)
-          (emit-recur-tail return plug node)
-          (emit-tail return plug node)))
-      continuation-form))))
+     (emit-cps-form node continuation-form)))
+  ([node continuation-form]
+   (trampoline emit-cps-form identity node continuation-form))
+  ([return node continuation-form]
+   (let [plug (continuation-form->hole continuation-form)]
+     (emit-tail return plug node))))
 
 (def run-cps-form-emitter
   "Run `emit-cps-form` and related transformations."
@@ -438,6 +432,24 @@
 
 ;;;; *** IF
 
+(defn branch
+  [emit return plug & branch-nodes]
+  (letfn [(emit-branches
+            [plug-conditional plug-branch]
+            (collect
+             (fn [return plug-branch branch-node]
+               (if (and (:direct? branch-node)
+                        (:recur-dominator? branch-node))
+                 (emit return plug branch-node)
+                 (emit return plug-branch branch-node)))
+             (fn [branch-forms]
+               (apply return plug-conditional branch-forms))
+             plug-branch
+             branch-nodes))]
+    (if (> (count (filter (complement :direct?) branch-nodes)) 1)
+      (reify-hole emit-branches plug)
+      (emit-branches plug-into-identity plug))))
+
 (defn emit-if
   [return
    plug
@@ -448,18 +460,17 @@
   (emit-value
    return
    (fn [return test-form]
-     (emit-tail
-      (fn [then-form]
-        (emit-tail
-         (fn [else-form]
-           (return
-            (with-node-meta
-              `(if ~test-form ~then-form ~else-form)
-              if-node)))
-         plug
-         else-node))
+     (branch
+      emit-tail
+      (fn [plug then-form else-form]
+        (plug
+         return
+         (with-node-meta
+           `(if ~test-form ~then-form ~else-form)
+           if-node)))
       plug
-      then-node))
+      then-node
+      else-node))
    test-node))
 
 (defmethod emit
@@ -536,7 +547,7 @@
      (emit-values
       return
       (fn [return argument-forms]
-        (case (read-function-type function-node)
+        (case (read-control-type function-node)
           :direct
           (plug
            return
@@ -544,25 +555,21 @@
              (list* function-form argument-forms)
              invoke-node))
           :shift
-          (hole->continuation-form
-           (fn [continuation-form]
-             (return
-              (with-node-meta
-                (list*
-                 `invoke-shift
-                 function-form
-                 continuation-form
-                 argument-forms)
-                invoke-node)))
-           plug)
+          (let [continuation-form (hole->continuation-form plug)]
+            (return
+             (with-node-meta
+               (list*
+                `invoke-shift
+                function-form
+                continuation-form
+                argument-forms)
+               invoke-node)))
           #_:default
-          (hole->continuation-form
-           (fn [continuation-form]
-             (let [result-symbol (gensym "r__")
-                   body-form
-                   (build-recur-tail
-                    (trampoline plug identity result-symbol)
-                    :build-direct)]
+          (let [continuation-form (hole->continuation-form plug)
+                result-symbol
+                (gensym "r__")]
+            (plug
+             (fn [body-form]
                (return
                 `(if (instance? clontrol.function.shifter.Shifter ~function-form)
                    ~(with-node-meta
@@ -580,8 +587,8 @@
                        (list*
                         function-form
                         argument-forms)
-                       invoke-node))))))
-           plug)))
+                       invoke-node)))))
+             result-symbol))))
       argument-nodes))
    function-node))
 
@@ -692,26 +699,18 @@
   (emit-let*-bindings
    return
    (fn [return binding-symbols]
-     (let [continuation-symbol (gensym "k__")]
-       (continuation-form->hole
-        (fn [plug']
-          (hole->continuation-form
-           (fn [continuation-form]
-             (emit-recur-tail 
-              (fn [body-form]
-                (return
-                 (with-node-meta
-                   (list*
-                    `(fn* ~loop-symbol
-                          ([~continuation-symbol ~@binding-symbols]
-                           ~body-form))
-                    continuation-form
-                    binding-symbols)
-                   loop*-node)))
-              plug'
-              body-node))
-           plug))
-        continuation-symbol)))
+     (let [continuation-symbol (gensym "k__")
+           continuation-form (hole->continuation-form plug)
+           body-form (emit-cps-form body-node continuation-symbol)]
+       (return
+        (with-node-meta
+          (list*
+           `(fn* ~loop-symbol
+                 ([~continuation-symbol ~@binding-symbols]
+                  ~body-form))
+           continuation-form
+           binding-symbols)
+          loop*-node))))
    binding-nodes))
 
 (defmethod emit
@@ -826,18 +825,16 @@
   (emit-values
    return
    (fn [return argument-forms]
-     (hole->continuation-form
-      (fn [function-form]
-        (->RecurTailBuilder
-         #(return
-           (with-node-meta
-             (list* 'recur function-form argument-forms)
-             recur-node))
-         #(return
-           (with-node-meta
-             (list* loop-symbol function-form argument-forms)
-             recur-node))))
-      plug))
+     (let [continuation-form (hole->continuation-form plug)]
+       (if *in-continuation?*
+         (return
+          (with-node-meta
+            (list* loop-symbol continuation-form argument-forms)
+            recur-node))
+         (return
+          (with-node-meta
+            (list* 'recur continuation-form argument-forms)
+            recur-node)))))
    argument-nodes))
 
 (defmethod emit
@@ -949,21 +946,19 @@
    {handler-node :handler
     argument-nodes :args
     :as shift*-node}]
-  (hole->continuation-form
-   (fn [continuation-form]
-     (emit-value
-      return
-      (fn [return handler-form]
-        (emit-values
-         return
-         (fn [return argument-forms]
-           (return
-            (with-node-meta
-              (list* handler-form continuation-form argument-forms)
-              shift*-node)))
-         argument-nodes))
-      handler-node))
-   plug))
+  (let [continuation-form (hole->continuation-form plug)]
+   (emit-value
+    return
+    (fn [return handler-form]
+      (emit-values
+       return
+       (fn [return argument-forms]
+         (return
+          (with-node-meta
+            (list* handler-form continuation-form argument-forms)
+            shift*-node)))
+       argument-nodes))
+    handler-node)))
 
 (defmethod emit
   :shift
@@ -1056,6 +1051,8 @@
    {body-node :body
     catch-nodes :catches
     :as try-node}]
+  ;; We can reify the rest of the continuation, as `recur` cannot cross a
+  ;; `try-catch` block anyway.
   (reify-hole
    (fn [plug-try plug-tail]
      (emit-tail
@@ -1065,7 +1062,7 @@
            (plug-try
             return
             (with-node-meta
-              (list* `try body-form catch-forms)
+              (list* 'try body-form catch-forms)
               try-node)))
          plug-tail
          catch-nodes))
