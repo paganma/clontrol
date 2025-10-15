@@ -156,27 +156,8 @@
          (emit return plug-next node)))
      (plug return forms))))
 
-(defn- generate-shadow-aliases
-  [shadowed-symbols]
-  (let [postfix-symbol (gensym "__")]
-    (for [shadowed-symbol shadowed-symbols]
-      [shadowed-symbol (symbol (str shadowed-symbol postfix-symbol))])))
-
-(defn- save-shadow-aliases
-  [form shadow-aliases]
-  (if (seq shadow-aliases)
-    (let [[[left-symbol right-symbol] & shadow-aliases'] shadow-aliases
-          form' (prepend-binding form 'let* right-symbol left-symbol)]
-      (recur form' shadow-aliases'))
-    form))
-
-(defn- restore-shadow-aliases
-  [form shadow-aliases]
-  (if (seq shadow-aliases)
-    (let [[[left-symbol right-symbol] & shadow-aliases'] shadow-aliases
-          form' (prepend-binding form 'let* left-symbol right-symbol)]
-      (recur form' shadow-aliases'))
-    form))
+(deftype ClosureResult
+    [value])
 
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
@@ -184,20 +165,32 @@
   [return plug node]
   (let [shadowed-symbols (:shadowings node)]
     (if (seq shadowed-symbols)
-      (let [aliases (generate-shadow-aliases shadowed-symbols)]
-        (emit-tail
-         (fn [form]
-           (return (save-shadow-aliases form aliases)))
-         (fn [return form]
-           (let [scope-symbol (gensym "s__")]
-             (plug
-              (fn [body-form]
-                (return
-                 (-> body-form
-                     (restore-shadow-aliases aliases)
-                     (prepend-binding 'let* scope-symbol form))))
-              scope-symbol)))
-         node))
+      (reify-hole
+       (fn [plug-tail plug-intermediate]
+         (emit-tail
+          (fn [tail-form]
+            (let [closure-symbol (gensym "c__")]
+              (plug
+               (fn [body-form]
+                 (plug-tail
+                  return
+                  (prepend-binding
+                   `(if (instance? ClosureResult ~closure-symbol)
+                      ~body-form
+                      ~closure-symbol)
+                   'let*
+                   closure-symbol
+                   tail-form)))
+               `(.value ~closure-symbol))))
+          (fn [return argument-form]
+            (if *in-continuation?*
+              (plug-intermediate return argument-form)
+              (plug
+               (fn [_]
+                 (return `(ClosureResult. ~argument-form)))
+               argument-form)))
+          node))
+       plug)
       (emit-tail return plug node))))
 
 (defn emit-value
