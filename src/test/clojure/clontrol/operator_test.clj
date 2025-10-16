@@ -559,15 +559,25 @@
                      (catch Exception _
                        false))
                    (throw (ex-info "test" {})))))
-
     (is (reset
-          (let [a (atom true)]
+          (let [a (atom false)]
             (try
               (try
                 (shift (fn [k] (k nil)))
                 (catch clojure.lang.ExceptionInfo _
+                  (reset! a true)
+                  false))
+              (throw (ex-info "test" {}))
+              (catch clojure.lang.ExceptionInfo _))
+            @a)))
+    (is (reset
+          (let [a (atom true)]
+            (try
+              (try
+                (catch clojure.lang.ExceptionInfo _
                   (reset! a false)
                   false))
+              (shift (fn [k] (k nil)))
               (throw (ex-info "test" {}))
               (catch clojure.lang.ExceptionInfo _))
             @a))))
