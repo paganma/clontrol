@@ -11,6 +11,7 @@
     :refer [continuation-form->hole
             plug-into-identity
             reify-hole
+            reify-closure-hole
             hole->continuation-form
             *in-continuation?*]]
    [clontrol.analyzer.pass.direct-marker
@@ -156,39 +157,18 @@
          (emit return plug-next node)))
      (plug return forms))))
 
-(deftype ClosureResult
-    [value])
-
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
   [return plug node]
   (let [shadowed-symbols (:shadowings node)]
     (if (seq shadowed-symbols)
-      (reify-hole
+      (reify-closure-hole
        (fn [plug-tail plug-intermediate]
          (emit-tail
-          (fn [tail-form]
-            (let [closure-symbol (gensym "c__")]
-              (plug
-               (fn [body-form]
-                 (plug-tail
-                  return
-                  (prepend-binding
-                   `(if (instance? ClosureResult ~closure-symbol)
-                      ~body-form
-                      ~closure-symbol)
-                   'let*
-                   closure-symbol
-                   tail-form)))
-               `(.value ~closure-symbol))))
-          (fn [return argument-form]
-            (if *in-continuation?*
-              (plug-intermediate return argument-form)
-              (plug
-               (fn [_]
-                 (return `(ClosureResult. ~argument-form)))
-               argument-form)))
+          (fn [intermediate-form]
+            (plug-tail return intermediate-form))
+          plug-intermediate
           node))
        plug)
       (emit-tail return plug node))))

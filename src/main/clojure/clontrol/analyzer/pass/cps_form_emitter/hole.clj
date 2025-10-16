@@ -56,3 +56,34 @@
             (fn [return inner-form]
               (return `(~phi-symbol ~inner-form)))]
         (return bind-outer bind-inner)))))
+
+(deftype ClosureResult
+    [value])
+
+(defn reify-closure-hole
+  [return plug]
+  (reify-hole
+   (fn [plug-outer plug-inner]
+     (let [closure-symbol (gensym "c__")]
+       (plug
+        (fn [body-form]
+          (return
+           (fn [return outer-form]
+             (plug-outer
+              return
+              (prepend-binding
+               `(if (instance? ClosureResult ~closure-symbol)
+                  ~body-form
+                  ~closure-symbol)
+               'let*
+               closure-symbol
+               outer-form)))
+           (fn [return inner-form]
+             (if *in-continuation?*
+               (plug-inner return inner-form)
+               (plug
+                (fn [_]
+                  (return `(ClosureResult. ~inner-form)))
+                inner-form)))))
+        `(.value ~closure-symbol))))
+   plug))
