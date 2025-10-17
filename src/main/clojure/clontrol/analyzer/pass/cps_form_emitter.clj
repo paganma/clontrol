@@ -539,8 +539,7 @@
                invoke-node)))
           #_:default
           (let [continuation-form (hole->continuation-form plug)
-                result-symbol
-                (gensym "r__")]
+                result-symbol (gensym "r__")]
             (plug
              (fn [body-form]
                (return

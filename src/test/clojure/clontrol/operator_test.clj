@@ -161,6 +161,7 @@
             t)
            1))
 
+    #_{:clj-kondo/ignore [:uninitialized-var]}
     (is (reset
           (def ^{:test (shift (fn [k] (k true)))} t))
         #'clontrol.operator-test/t)
