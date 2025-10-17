@@ -605,6 +605,9 @@
          (eval '(reset (do (let [a6 1] (shift identity)) a6)))))
     (is (thrown?
          clojure.lang.Compiler$CompilerException
+         (eval '(reset (do (let [a5 0] (let [a6 1] (shift identity))) a6)))))
+    (is (thrown?
+         clojure.lang.Compiler$CompilerException
          (eval '(let [] b6))))
     (is (thrown?
          clojure.lang.Compiler$CompilerException
