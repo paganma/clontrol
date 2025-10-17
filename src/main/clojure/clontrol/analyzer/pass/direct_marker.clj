@@ -13,13 +13,14 @@
   subtree."
   #{:case-test
     :const
+    :maybe-class
     :deftype
-    :fn
+    :value
+    :effect
     :import
     :keyword
     :local
     :quote
-    :reify
     :static-field
     :the-var
     :var})
