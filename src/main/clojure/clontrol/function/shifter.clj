@@ -31,6 +31,8 @@
 
 (declare invoke-shift)
 
+(declare apply-shift)
+
 (def-Shifter-protocol
   Shifter)
 
@@ -71,7 +73,7 @@
     (str this " can only be invoked within a continuation prompt.")
     {:handler (.run-with-continuation this)})))
 
-(defmacro ^:private def-invoke-unknown-fn
+(defmacro ^:private def-call-shift-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
   [name-symbol]
   (let [shifter-class-symbol 'clontrol.function.shifter.Shifter
@@ -81,17 +83,13 @@
     `(defn ~name-symbol
        ~@(for [parameter-symbols (make-parameter-arities (- shifter-arities 1))]
            `([~function-symbol ~return-symbol ~@parameter-symbols]
-             (if (instance? ~shifter-class-symbol ~function-symbol)
-               (. ~shifter-symbol invoke-shift ~return-symbol ~@parameter-symbols)
-               (~return-symbol (~function-symbol ~@parameter-symbols)))))
+             (. ~shifter-symbol invoke-shift ~return-symbol ~@parameter-symbols)))
        ~(let [fixed-parameter-symbols (vec (make-parameter-arity (- shifter-arities 1)))
               rest-symbol 'ps
               parameter-symbols (conj fixed-parameter-symbols '& rest-symbol)
               argument-form `(list* ~@fixed-parameter-symbols ~rest-symbol)]
           `([~function-symbol ~return-symbol ~@parameter-symbols]
-            (if (instance? ~shifter-class-symbol ~function-symbol)
-              (. ~shifter-symbol apply-shift ~return-symbol ~argument-form)
-              (~return-symbol (~function-symbol ~argument-form))))))))
+            (. ~shifter-symbol apply-shift ~return-symbol ~argument-form))))))
 
-(def-invoke-unknown-fn
-  invoke-unknown)
+(def-call-shift-fn
+  call-shift)
