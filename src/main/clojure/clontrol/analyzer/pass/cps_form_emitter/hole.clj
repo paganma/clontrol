@@ -80,14 +80,16 @@
                closure-symbol
                outer-form)
               context))
-           (fn [return inner-form context]
-             (if (:in-continuation? context)
-               (plug-inner return inner-form context)
-               (plug
-                (fn [_]
-                  (return `(ClosureResult. ~inner-form)))
-                inner-form
-                context)))))
+           (with-meta
+             (fn [return inner-form context]
+               (if (:in-continuation? context)
+                 (plug-inner return inner-form context)
+                 (plug
+                  (fn [_]
+                    (return `(ClosureResult. ~inner-form)))
+                  inner-form
+                  context)))
+             (meta plug-inner))))
         `(.value ~closure-symbol)
         nil)))
    plug))
