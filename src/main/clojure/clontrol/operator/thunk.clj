@@ -9,8 +9,6 @@
 
 (defn thunk?
   [x]
-  {:post
-   [(boolean? %)]}
   (instance? clontrol.operator.thunk.Thunk x))
 
 (defmacro thunk
@@ -21,10 +19,6 @@
 
 (defn make-thunk
   [run-thunk]
-  {:pre
-   [(ifn? run-thunk)]
-   :post
-   [(thunk? %)]}
   (->Thunk run-thunk))
 
 (defn trampoline
@@ -36,10 +30,3 @@
     (let [x' (^clojure.lang.Fn (.run-thunk ^Thunk value))]
       (recur x'))
     value))
-
-(defn lift
-  [continuation]
-  (println continuation)
-  (fn [x]
-    (println x)
-    (trampoline (continuation x))))
