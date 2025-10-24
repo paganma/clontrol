@@ -5,28 +5,27 @@
 
 (def plug-into-identity
   ^{:function-form `identity}
-  (fn [return form] (return form)))
+  (fn [return form _] (return form)))
 
 (defn continuation-form->hole
   [continuation-form]
   (if (= continuation-form `identity)
     plug-into-identity
     ^{:function-form continuation-form}
-    (fn [return form]
+    (fn [return form _]
       (return `(~continuation-form ~form)))))
 
-(def ^:dynamic *in-continuation?* false)
-
 (defn hole->continuation-form
-  [plug]
+  [return plug]
   (if-let [function-form (:function-form (meta plug))]
-    function-form
-    (let [argument-symbol
-          (gensym "x__")
-          body-form
-          (binding [*in-continuation?* true]
-            (trampoline plug identity argument-symbol))]
-      `(fn* ([~argument-symbol] ~body-form)))))
+    (return function-form)
+    (let [argument-symbol (gensym "x__")]
+      (plug
+       (fn [body-form]
+         (return
+          `(fn* ([~argument-symbol] ~body-form))))
+       argument-symbol
+       {:in-continuation? true}))))
 
 (defn reify-hole
   "Reifies `plug` into a continuation form `phi` and returns two holes:
@@ -38,24 +37,26 @@
   operations, for which multiple branches may yield to the same
   continuation (see [[emit-if]], [[emit-case]], [[emit-try]])."
   [return plug]
-  (let [continuation-form (hole->continuation-form plug)]
-    (if (symbol? continuation-form)
-      (return plug-into-identity plug)
-      (let [phi-symbol
-            (gensym "p__")
-            bind-outer
-            (fn [return outer-form]
-              (return
-               (prepend-binding
-                outer-form
-                'let*
-                phi-symbol
-                continuation-form)))
-            bind-inner
-            ^{:function-form phi-symbol}
-            (fn [return inner-form]
-              (return `(~phi-symbol ~inner-form)))]
-        (return bind-outer bind-inner)))))
+  (hole->continuation-form
+   (fn [continuation-form]
+     (if (symbol? continuation-form)
+       (return plug-into-identity plug)
+       (let [phi-symbol
+             (gensym "p__")
+             bind-outer
+             (fn [return outer-form _]
+               (return
+                (prepend-binding
+                 outer-form
+                 'let*
+                 phi-symbol
+                 continuation-form)))
+             bind-inner
+             ^{:function-form phi-symbol}
+             (fn [return inner-form _]
+               (return `(~phi-symbol ~inner-form)))]
+         (return bind-outer bind-inner))))
+   plug))
 
 (deftype ClosureResult
     [value])
@@ -68,7 +69,7 @@
        (plug
         (fn [body-form]
           (return
-           (fn [return outer-form]
+           (fn [return outer-form context]
              (plug-outer
               return
               (prepend-binding
@@ -77,13 +78,16 @@
                   ~closure-symbol)
                'let*
                closure-symbol
-               outer-form)))
-           (fn [return inner-form]
-             (if *in-continuation?*
-               (plug-inner return inner-form)
+               outer-form)
+              context))
+           (fn [return inner-form context]
+             (if (:in-continuation? context)
+               (plug-inner return inner-form context)
                (plug
                 (fn [_]
                   (return `(ClosureResult. ~inner-form)))
-                inner-form)))))
-        `(.value ~closure-symbol))))
+                inner-form
+                context)))))
+        `(.value ~closure-symbol)
+        nil)))
    plug))
