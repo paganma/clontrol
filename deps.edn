@@ -15,3 +15,11 @@
    :main-opts ["-m" "cognitect.test-runner"]
    :exec-args {:dirs ["src/test/clojure"]}
    :exec-fn cognitect.test-runner.api/test}}}
+  ;; COVERAGE
+  :coverage
+  {:extra-paths ["src/test/clojure"]
+   :extra-deps
+   {cloverage/cloverage {:mvn/version "1.2.4"}}
+   :main-opts ["-m" "cloverage.coverage"
+               "-p" "src/main/clojure"
+               "-s" "src/test/clojure"]}}}
