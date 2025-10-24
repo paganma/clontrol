@@ -13,8 +13,8 @@
     :deftype
     :maybe-class
     :local
-    :value
-    :static-field})
+    :static-field
+    :value})
 
 (def ^:dynamic *compound-pure-operations*
   "Operations that can be considered pure only if their children are
