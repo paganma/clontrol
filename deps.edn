@@ -3,6 +3,11 @@
 
  :aliases
  {:test
+  :build
+  {:deps
+   {io.github.clojure/tools.build
+    {:git/tag "v0.10.10" :git/sha "deedd62"}}
+   :ns-default build}
   {:extra-paths ["src/test/clojure"]
    :extra-deps
    {io.github.cognitect-labs/test-runner
