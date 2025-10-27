@@ -172,7 +172,8 @@
         plug-intermediate
         node
         context))
-     plug)
+     plug
+     context)
     (emit-tail return plug node context)))
 
 (defn emit-value
@@ -1096,7 +1097,8 @@
       plug-tail
       body-node
       context))
-   plug))
+   plug
+   context))
 
 (defn emit-try-finally
   [return

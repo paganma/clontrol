@@ -62,7 +62,7 @@
     [value])
 
 (defn reify-closure-hole
-  [return plug]
+  [return plug context]
   (reify-hole
    (fn [plug-outer plug-inner]
      (let [closure-symbol (gensym "c__")]
@@ -91,5 +91,5 @@
                   context)))
              (meta plug-inner))))
         `(.value ~closure-symbol)
-        nil)))
+        context)))
    plug))
