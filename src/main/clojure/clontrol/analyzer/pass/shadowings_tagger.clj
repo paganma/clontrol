@@ -32,14 +32,14 @@
          (not (binding-symbols binding-symbol)))))
      (node/read-children node))))
 
-(defn tag
+(defn tag-expression
   [return node]
   (if (:direct? node)
     (return node)
     #(node/update-children
       (fn [node]
         (return (assoc node :shadowings (find-shadowings node))))
-      tag
+      tag-expression
       node)))
 
 (defn tag-shadowings
@@ -55,4 +55,4 @@
   ([node]
    (trampoline tag-shadowings identity node))
   ([return node]
-   (tag return node)))
+   (tag-expression return node)))
