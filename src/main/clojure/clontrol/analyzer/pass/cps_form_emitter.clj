@@ -10,6 +10,7 @@
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [continuation-form->hole
             reify-closure-hole
+            reify-hole
             hole->continuation-form]]
    [clontrol.analyzer.pass.direct-marker
     :refer [mark-direct]]
@@ -155,16 +156,27 @@
          (emit return plug-next node context)))
      (plug return forms context))))
 
+(def ^:dynamic *escaped-operations*
+  #{:if :case :try})
+
+(defn reify-intermediate-hole
+  [return plug node context]
+  (if (:recur-dominator? node)
+    (reify-closure-hole return plug context)
+    (reify-hole return plug)))
+
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
   [return
    plug
-   {shadowed-symbols :shadowings
+   {operation :op
+    shadowed-symbols :shadowings
     :as node}
    context]
-  (if (seq shadowed-symbols)
-    (reify-closure-hole
+  (if (or (seq shadowed-symbols)
+          (*escaped-operations* operation))
+    (reify-intermediate-hole
      (fn [plug-tail plug-intermediate]
        (emit-tail
         (fn [intermediate-form]
@@ -173,6 +185,7 @@
         node
         context))
      plug
+     node
      context)
     (emit-tail return plug node context)))
 
@@ -1079,25 +1092,19 @@
     catch-nodes :catches
     :as try-node}
    context]
-  (reify-closure-hole
-   (fn [plug-try plug-tail]
-     (emit-tail
-      (fn [body-form]
-        (emit-catches
-         (fn [catch-forms]
-           (plug-try
-            return
-            (with-node-meta
-              (list* 'try body-form catch-forms)
-              try-node)
-            context))
-         plug-tail
-         catch-nodes
-         context))
-      plug-tail
-      body-node
+  (emit-tail
+   (fn [body-form]
+     (emit-catches
+      (fn [catch-forms]
+        (return
+         (with-node-meta
+           (list* 'try body-form catch-forms)
+           try-node)))
+      plug
+      catch-nodes
       context))
    plug
+   body-node
    context))
 
 (defn emit-try-finally
@@ -1107,31 +1114,32 @@
     :as try-node}
    context]
   (if finally-node
-    ;; General assumption:
-    ;; (try ..._1 (finally ..._2))
-    ;; Is equivalent to:
-    ;; (try (try ..._1 ..._2) (catch Throwable t ..._2 (throw t))
-    (emit-try
-     (fn [try-form]
-       (let [throwable-symbol (gensym "t__")]
-         (emit-statement
-          (fn [finally-form]
-            (return
-             (with-node-meta
-               `(try
-                  ~try-form
-                  (catch Throwable ~throwable-symbol
-                    ~finally-form))
-               finally-node)))
-          (fn [return _ _]
-            (return `(throw ~throwable-symbol)))
-          finally-node
-          context)))
-     (fn [return try-form context]
+    (reify-intermediate-hole
+     (fn [plug-try plug-tail]
+       (emit-try
+        (fn [try-form]
+          (let [thrown-symbol (gensym "t__")]
+            (emit-statement
+             (fn [finally-form]
+               (plug-try
+                return
+                `(try
+                   ~try-form
+                   (catch Throwable ~thrown-symbol
+                     ~finally-form))
+                context))
+             (fn [return _ _]
+               (return `(throw ~thrown-symbol)))
+             finally-node
+             context)))
+        plug-tail
+        try-node
+        context))
+     (fn [return result-form context]
        (emit-statement
         return
         (fn [return _ context]
-          (plug return try-form context))
+          (plug return result-form context))
         finally-node
         context))
      try-node
