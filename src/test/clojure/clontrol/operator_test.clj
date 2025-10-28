@@ -498,12 +498,62 @@
            [1 nil])))
 
   (testing "Shift in TRY-CATCH"
+    (is (= (reset
+             (try
+               (try
+                 (shift (fn [k] (k 1)))
+                 (catch Exception _ 2))
+               (catch Exception _ 3)))
+           1))
+    (is (= (reset
+             (try
+               (try
+                 (throw (Exception. "inner"))
+                 (catch Exception _
+                   (shift (fn [k] (k 4)))))
+               (catch Exception _ 5)))
+           4))
+    (is (= (reset
+             (try
+               (throw (RuntimeException. "test"))
+               (catch RuntimeException _
+                 (shift (fn [k] (k :runtime))))
+               (catch Exception _
+                 (shift (fn [k] (k :exception))))))
+           :runtime))
+    (is (= (reset
+             (try
+               (throw (Exception. "test"))
+               (catch RuntimeException _
+                 (shift (fn [k] (k :runtime))))
+               (catch Exception _
+                 (shift (fn [k] (k :exception))))))
+           :exception))
+    (is (thrown?
+         Exception
+         (reset
+           (try
+             (shift (fn [_] (throw (Exception. "from shift"))))
+             (catch RuntimeException _ :caught)))))
+    (is (= (reset
+             (try
+               (shift (fn [_] (throw (Exception. "from shift"))))
+               (catch Exception _ :caught)))
+           :caught))
+    (is (= (reset
+             (try
+               (shift (fn [k]
+                        (try
+                          (k (throw (Exception. "from continuation")))
+                          (catch Exception _ :caught-from-k))))
+               (catch Exception _ :caught)))
+           :caught-from-k))
     (is (reset
-         (try
-           (throw (ex-info "" {}))
-           false
-           (catch Exception _
-             (shift (fn [_] true))))))
+          (try
+            (throw (ex-info "" {}))
+            false
+            (catch Exception _
+              (shift (fn [_] true))))))
     (is (reset
          (try
            (shift (fn [_] true))
@@ -544,7 +594,118 @@
               (shift (fn [k] (k nil)))
               (throw (ex-info "test" {}))
               (catch clojure.lang.ExceptionInfo _))
-            @a))))
+            @a)))
+    (is (reset
+          (let [a (atom 0)]
+            (is (= @a 0))
+            (try
+              (swap! a inc)
+              (shift (fn [k] (k nil)))
+              (is (= @a 1))
+              (finally
+                (swap! a inc)
+                (shift (fn [k] (k nil)))
+                (is (= @a 2)))))))
+    (is (reset
+          (let [a (atom 0)]
+            (is (= @a 0))
+            (try
+              (try
+                (swap! a inc)
+                (shift (fn [k] (k nil)))
+                (is (= @a 1))
+                (throw (ex-info "test" {}))
+                (finally
+                  (swap! a inc)
+                  (shift (fn [k] (k nil)))
+                  (is (= @a 2))))
+              (catch Throwable t
+                (swap! a inc)))
+            (is (= @a 3)))))
+    (is (reset
+          (let [a (atom 0)]
+            (is (= @a 0))
+            (try
+              (try
+                (swap! a inc)
+                (shift (fn [k] (k nil)))
+                (is (= @a 1))
+                (throw (ex-info "test" {}))
+                (catch Throwable t
+                  (swap! a inc)
+                  (shift (fn [k] (k nil)))
+                  (is (= @a 2))
+                  (throw t))
+                (finally
+                  (swap! a inc)
+                  (shift (fn [k] (k nil)))
+                  (is (= @a 3))))
+              (catch Throwable t
+                (swap! a inc)))
+            (is (= @a 4)))))
+    (is (let [a (atom 0)
+              r (reset
+                  (is (= @a 0))
+                  (try
+                    (try
+                      (swap! a inc)
+                      (shift identity)
+                      (is (= @a 1))
+                      (throw (ex-info "test" {}))
+                      (catch Throwable t
+                        (swap! a inc)
+                        (shift (fn [k] (k nil)))
+                        (is (= @a 2))
+                        (throw t))
+                      (finally
+                        (swap! a inc)
+                        (shift (fn [k] (k nil)))
+                        (is (= @a 3))))
+                    (catch Throwable t
+                      (swap! a inc)))
+                  (is (= @a 4))
+                  (swap! a inc))]
+          (try
+            (r nil) ;; Deferring the continuation escapes the dynamic context of
+            ;; the outer try block
+            (catch Throwable t
+              (is (= @a 1))
+              (swap! a inc)))
+          (is (= @a 2)))))
+
+  (testing "Shift with Dynamic VARS"
+    (def ^:dynamic *a* 0)
+    (def ^:dynamic *b* 0)
+    (def ^:dynamic *c* 0)
+    (is (= (binding [*a* 1]
+             (reset
+               (+ *a* (shift (fn [k] (k 2))))))
+           3))
+    (is (= (let [f (binding [*a* 1]
+                     (reset
+                       (+ *a* (shift identity))))]
+             (f 1)) ;; Deferring the continuations escapes the dynamic context
+           1))
+    (is (= (binding [*a* 10]
+             (reset
+               (let [result (shift (fn [k] [(k (* *a* 2)) (k (* *a* 3))]))]
+                 (+ *a* result))))
+           [30 40]))
+    (is (= (binding [*a* 5 *b* 3]
+             (reset
+               (+ *a* *b* (shift (fn [k] (k 1))))))
+           9))
+    (is (= (reset
+             (with-local-vars [a 1]
+               (+ (var-get a) (shift (fn [k] (k 2))))))
+           3))
+    (is (= (let [f (reset
+                     (with-local-vars [a 1]
+                       (+ (var-get a) (shift identity))))]
+             (f 1)) ;; with-local-vars vars are bound to the thread instead of
+           ;; the dynamic context, hence `f` can still access the value
+           ;; of `a`.
+           2)))
 
   (testing "Shift in WITH-META"
     (is (= (meta (reset ^{:a (shift (fn [k] (k true)))} [1 2 3]))
@@ -563,38 +724,38 @@
   (testing "Shift and Effects"
     (let [e (atom 0)]
       (letfn
-       [(n3-with-effect []
-          (swap! e inc)
-          3)]
+          [(n3-with-effect []
+             (swap! e inc)
+             3)]
 
         (reset
-         (+ 1 (n3-with-effect) (shift identity)))
+          (+ 1 (n3-with-effect) (shift identity)))
 
         (is (= @e 1))
 
         (reset
-         (+ (shift identity) (n3-with-effect)))
+          (+ (shift identity) (n3-with-effect)))
 
         (is (= @e 1))
 
         (reset
-         (let [_ (n3-with-effect)
-               b (shift identity)]
-           b))
+          (let [_ (n3-with-effect)
+                b (shift identity)]
+            b))
 
         (is (= @e 2))
 
         (reset
-         (let [a (shift identity)]
-           (+ a (n3-with-effect))))
+          (let [a (shift identity)]
+            (+ a (n3-with-effect))))
 
         (is (= @e 2)))))
 
   (testing "Shift with Synchronization Primitives"
     (reset
-     (let [m (atom nil)]
-       (locking (shift (fn [k] (k m)))
-         (is (swap! m not))))))
+      (let [m (atom nil)]
+        (locking (shift (fn [k] (k m)))
+          (is (swap! m not))))))
 
   (testing "Error handling"
     (is (thrown?
