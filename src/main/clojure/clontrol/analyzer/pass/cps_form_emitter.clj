@@ -9,7 +9,7 @@
     :refer [read-control-type]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [continuation-form->hole
-            reify-closure-hole
+            isolate-hole
             reify-hole
             hole->continuation-form]]
    [clontrol.analyzer.pass.direct-marker
@@ -156,14 +156,16 @@
          (emit return plug-next node context)))
      (plug return forms context))))
 
-(def ^:dynamic *escaped-operations*
+(def ^:dynamic *branch-operations*
   #{:if :case :try})
 
-(defn reify-intermediate-hole
-  [return plug node context]
-  (if (:recur-dominator? node)
-    (reify-closure-hole return plug context)
-    (reify-hole return plug)))
+(defn emit-branch
+  [return plug branch-node]
+  ...)
+
+(defn emit-shadowing-closure
+  [return plug branch-node]
+  ...)
 
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
@@ -175,8 +177,8 @@
     :as node}
    context]
   (if (or (seq shadowed-symbols)
-          (*escaped-operations* operation))
-    (reify-intermediate-hole
+          (*branch-operations* operation))
+    (reify-hole
      (fn [plug-tail plug-intermediate]
        (emit-tail
         (fn [intermediate-form]
@@ -184,9 +186,7 @@
         plug-intermediate
         node
         context))
-     plug
-     node
-     context)
+     plug)
     (emit-tail return plug node context)))
 
 (defn emit-value
@@ -1114,7 +1114,7 @@
     :as try-node}
    context]
   (if finally-node
-    (reify-intermediate-hole
+    (reify-hole
      (fn [plug-try plug-tail]
        (emit-try
         (fn [try-form]
@@ -1141,9 +1141,7 @@
         (fn [return _ context]
           (plug return result-form context))
         finally-node
-        context))
-     try-node
-     context)
+        context)))
     (emit-try return plug try-node context)))
 
 (defmethod emit
