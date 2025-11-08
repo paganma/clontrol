@@ -159,17 +159,20 @@
 (def ^:dynamic *branch-operations*
   #{:if :case :try})
 
+(defn ^:dynamic *splits-control?*
+  [{operation :op
+    shadowed-symbols :shadowings
+    :as node}]
+  (or (seq shadowed-symbols)
+      (*branch-operations* operation)
+      (and (= operation :invoke)
+           (= (read-control-type (:fn node)) :unknown))))
+
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
-  [return
-   plug
-   {operation :op
-    shadowed-symbols :shadowings
-    :as node}
-   context]
-  (if (or (seq shadowed-symbols)
-          (*branch-operations* operation))
+  [return plug node context]
+  (if (*splits-control?* node) 
     (if (:recur-dominator? node)
       (capture-recur-hole
        (fn [return plug]
@@ -574,29 +577,24 @@
           :unknown
           (hole->continuation-form
            (fn [continuation-form]
-             (let [result-symbol (gensym "r__")]
-               (plug
-                (fn [body-form]
-                  (return
-                   `(if (instance? clontrol.function.shifter.Shifter ~function-form)
-                      ~(with-node-meta
-                         (list*
-                          `call-shift
-                          function-form
-                          continuation-form
-                          argument-forms)
-                         invoke-node)
-                      ~(prepend-binding
-                        body-form
-                        'let*
-                        result-symbol
-                        (with-node-meta
-                          (list*
-                           function-form
-                           argument-forms)
-                          invoke-node)))))
-                result-symbol
-                context)))
+             (plug
+              (fn [body-form]
+                (return
+                 `(if (instance? clontrol.function.shifter.Shifter ~function-form)
+                    ~(with-node-meta
+                       (list*
+                        `call-shift
+                        function-form
+                        continuation-form
+                        argument-forms)
+                       invoke-node)
+                    ~body-form)))
+              (with-node-meta
+                (list*
+                 function-form
+                 argument-forms)
+                invoke-node)
+              context))
            plug
            context)))
       argument-nodes
