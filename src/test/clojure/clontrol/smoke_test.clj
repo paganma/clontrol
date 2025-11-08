@@ -2349,7 +2349,7 @@
            10 (smoke 42)
            20 (smoke 42)
            10)
-         (catch Exception e
+         (catch Exception _
            (if false
              (smoke 42)
              nil)))
@@ -2365,7 +2365,7 @@
                (if false
                  (smoke nil)
                  42)
-               (catch Exception e
+               (catch Exception _
                  (if false
                    (smoke 42)
                    nil))

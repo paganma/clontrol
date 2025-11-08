@@ -218,6 +218,9 @@
            [[{:a 1} {:a 2}] [{:b 1} {:b 2}]])))
 
   (testing "Shift in SET!"
+    #_{:clj-kondo/ignore
+       [:inline-def
+        :uninitialized-var]}
     (is (= (do
              (def ^:dynamic *t*)
              (binding [*t* 0]
@@ -352,7 +355,7 @@
                 (loop [b 0]
                   (if (< b 10)
                     (do
-                      (if (> a 5)
+                      (when (> a 5)
                         (abort a))
                       (recur (inc b)))
                     b))
@@ -366,13 +369,13 @@
                 (loop [b 0]
                   (if (< b 10)
                     (do
-                      (if (> a 10)
+                      (when (> a 10)
                         (abort a))
                       (recur (inc b)))
                     b))
                 (if (< a 10)
                   (do
-                    (if (> a 5)
+                    (when (> a 5)
                       (abort a))
                     (recur (inc a)))
                   a)))
@@ -386,8 +389,7 @@
                     b))
                 (if (< a 10)
                   (do
-                    (if (> a 5)
-                      (abort a))
+                    (when (> a 5) (abort a))
                     (recur (inc a)))
                   a)))
              6))
@@ -619,7 +621,7 @@
                   (swap! a inc)
                   (shift (fn [k] (k nil)))
                   (is (= @a 2))))
-              (catch Throwable t
+              (catch Throwable _
                 (swap! a inc)))
             (is (= @a 3)))))
     (is (reset
@@ -640,7 +642,7 @@
                   (swap! a inc)
                   (shift (fn [k] (k nil)))
                   (is (= @a 3))))
-              (catch Throwable t
+              (catch Throwable _
                 (swap! a inc)))
             (is (= @a 4)))))
     (is (let [a (atom 0)
@@ -661,18 +663,19 @@
                         (swap! a inc)
                         (shift (fn [k] (k nil)))
                         (is (= @a 3))))
-                    (catch Throwable t
+                    (catch Throwable _
                       (swap! a inc)))
                   (is (= @a 4))
                   (swap! a inc))]
           (try
             (r nil) ;; Deferring the continuation escapes the dynamic context of
             ;; the outer try block
-            (catch Throwable t
+            (catch Throwable _
               (is (= @a 1))
               (swap! a inc)))
           (is (= @a 2)))))
 
+  #_{:clj-kondo/ignore [:inline-def]}
   (testing "Shift with Dynamic VARS"
     (def ^:dynamic *a* 0)
     (def ^:dynamic *b* 0)
