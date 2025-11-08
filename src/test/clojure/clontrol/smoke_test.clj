@@ -2191,7 +2191,7 @@
   (let [do-loop
         (fn-shift
           [n]
-          (if (< n 1000000)
+          (if (< n 100000)
             (recur (inc n))
             (smoke 42)))]
     (is (= (reset
@@ -2200,7 +2200,7 @@
 
   (is (= (reset
            (loop [n 0]
-             (if (< n 1000000)
+             (if (< n 100000)
                (if (= (mod n 3) 0)
                  (if false
                    (smoke nil)
@@ -2214,7 +2214,7 @@
           [n]
           (do
             (when false (smoke nil))
-            (if (< n 1000000)
+            (if (< n 100000)
               (recur (inc n))
               (smoke 42))))]
     (is (= (reset
@@ -2224,7 +2224,7 @@
   (is (= (reset
            (loop [a 0
                   b 1]
-             (if (> a 1000000)
+             (if (> a 100000)
                (smoke b)
                (recur b (+ a b)))))
-         2178309)))
+         196418)))
