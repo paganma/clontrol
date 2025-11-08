@@ -9,7 +9,9 @@
     :refer [read-control-type]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [continuation-form->hole
-            hole->continuation-form]]
+            hole->continuation-form
+            isolate-hole
+            reify-hole]]
    [clontrol.analyzer.pass.direct-marker
     :refer [mark-direct]]
    [clontrol.analyzer.pass.form-builder
@@ -157,62 +159,21 @@
 (def ^:dynamic *branch-operations*
   #{:if :case :try})
 
-(deftype Result [value])
-
 (defn emit-recur-intermediate
   [return plug node context]
-  (emit-tail
-   (fn [result-form]
-     (let [result-symbol (gensym "i__")]
-       (plug
-        (fn [tail-form]
-          (return
-           (prepend-binding
-            `(if (instance? Result ~result-symbol)
-               ~(prepend-binding
-                 tail-form
-                 'let*
-                 result-symbol
-                 `(.value ~result-symbol))
-               ~result-symbol)
-            'let*
-            result-symbol
-            result-form)))
-        result-symbol
-        context)))
-   (with-meta
-     (fn [return intermediate-form context]
-       (if (:in-continuation? context)
-         (plug return intermediate-form context)
-         (plug
-          (fn [_]
-            (return `(Result. ~intermediate-form)))
-          intermediate-form
-          context)))
-     (meta plug))
-   node
-   (assoc context :in-recur-intermediate? true)))
+  (isolate-hole
+   (fn [return plug context]
+     (emit-tail return plug node context))
+   return
+   plug
+   context))
 
 (defn emit-captured-intermediate
   [return plug node context]
-  (hole->continuation-form
-   (fn [continuation-form]
-     (if (symbol? continuation-form)
-       (emit-tail return plug node context)
-       (let [continuation-symbol (gensym "p__")]
-         (emit-tail
-          (fn [tail-form]
-            (return
-             (prepend-binding
-              tail-form
-              'let*
-              continuation-symbol
-              continuation-form)))
-          ^{:function-form continuation-symbol}
-          (fn [return intermediate-form _]
-            (return `(~continuation-symbol ~intermediate-form)))
-          node
-          context))))
+  (reify-hole
+   (fn [return plug context]
+     (emit-tail return plug node context))
+   return
    plug
    context))
 
@@ -227,8 +188,7 @@
    context]
   (if (or (seq shadowed-symbols)
           (*branch-operations* operation))
-    (if (and (:recur-dominator? node)
-             (not (:in-recur-intermediate? context)))
+    (if (:recur-dominator? node)
       (emit-recur-intermediate return plug node context)
       (emit-captured-intermediate return plug node context))
     (emit-tail return plug node context)))
@@ -765,7 +725,7 @@
    context]
   (emit-let*-bindings
    return
-   (fn [return binding-symbols context]
+   (fn [return binding-symbols _]
      (let [continuation-symbol (gensym "k__")]
        (emit-tail
         (fn [body-form]
@@ -784,7 +744,7 @@
            context))
         (continuation-form->hole continuation-symbol)
         body-node
-        (merge context {:in-continuation? false}))))
+        {})))
    binding-nodes
    context))
 
