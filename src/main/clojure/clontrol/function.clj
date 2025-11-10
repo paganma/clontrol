@@ -49,9 +49,7 @@
              (next params)
              (conj new-params gparam)
              (-> lets (conj (first params)) (conj gparam)))))
-        `(~new-params
-          (let ~lets
-            ~@body))))))
+        `(~new-params (let ~lets ~@body))))))
 
 (defn- parse-fn
   "Parses the signatures of a function form.
@@ -117,11 +115,11 @@
   ([return-body name-symbol arity-forms local-bindings]
    (let [continuation-symbol (gensym "k__")]
      `(fn*
-       ~@(if name-symbol
-           [name-symbol]
-           nil)
+       ~@(if name-symbol [name-symbol] nil)
        ~@(for [[parameter-symbols & body-forms] arity-forms]
-           (let [body-form
+           (let [loop-symbol
+                 (gensym (str name-symbol "__loop__"))
+                 body-form
                  (list* 'do body-forms)
                  local-bindings
                  (assoc local-bindings name-symbol (make-local-binding name-symbol))
@@ -140,7 +138,8 @@
                     :direct-marker/direct-recur? false}
                    :locals local-bindings
                    :context :ctx/return
-                   :loop-id name-symbol
+                   :loop-id loop-symbol
+                   :loop-parameters parameter-symbols
                    :loop-locals (count parameter-symbols)})]
              `([~continuation-symbol ~@parameter-symbols]
                ~(return-body
