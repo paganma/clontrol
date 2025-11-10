@@ -1402,9 +1402,12 @@
                            closest (first points)]
                       (if (empty? remaining)
                         (smoke closest)
-                        (let [p (first remaining)
-                              dist (.distance p (java.awt.Point. 0 0))
-                              closest-dist (.distance closest (java.awt.Point. 0 0))]
+                        (let [p
+                              (first remaining)
+                              dist
+                              (.distance p (java.awt.Point. 0 0))
+                              closest-dist
+                              (.distance closest (java.awt.Point. 0 0))]
                           (recur (rest remaining)
                                  (if (< dist closest-dist) p closest)))))]
          (smoke result))))
@@ -2133,7 +2136,7 @@
                (if false
                  (smoke nil)
                  42)
-               (catch Exception e
+               (catch Exception _
                  (if false
                    (smoke 42)
                    nil)))
@@ -2160,7 +2163,7 @@
                  10 (smoke 42)
                  20 (smoke 42)
                  10)
-               (catch Exception e
+               (catch Exception _
                  (if false
                    (smoke 42)
                    nil)))
@@ -2177,7 +2180,7 @@
                    10 (smoke 42)
                    20 (smoke 42)
                    10)
-                 (catch Exception e
+                 (catch Exception _
                    (if false
                      (smoke 42)
                      nil)))
@@ -2196,7 +2199,7 @@
                      10 (smoke 42)
                      20 (smoke 42)
                      10)
-                   (catch Exception e
+                   (catch Exception _
                      (if false
                        (smoke 42)
                        nil)))
@@ -2217,7 +2220,7 @@
                   10 (smoke 42)
                   20 (smoke 42)
                   10)
-                (catch Exception e
+                (catch Exception _
                   (if false
                     (smoke 42)
                     nil)))
@@ -2238,7 +2241,7 @@
                   10 (smoke 42)
                   20 (smoke 42)
                   10)
-                (catch Exception e
+                (catch Exception _
                   (if false
                     (smoke 42)
                     nil)))
@@ -2252,7 +2255,7 @@
                   10 (smoke 42)
                   20 (smoke 42)
                   10)
-                (catch Exception e
+                (catch Exception _
                   (if false
                     (smoke 42)
                     nil)))
@@ -2273,7 +2276,7 @@
                   10 (smoke 42)
                   20 (smoke 42)
                   10)
-                (catch Exception e
+                (catch Exception _
                   (if false
                     (smoke 42)
                     nil)))
@@ -2287,7 +2290,7 @@
                   10 (smoke 42)
                   20 (smoke 42)
                   10)
-                (catch Exception e
+                (catch Exception _
                   (if false
                     (smoke 42)
                     nil)))
@@ -2307,7 +2310,7 @@
            10 (smoke 42)
            20 (smoke 42)
            10)
-         (catch Exception e
+         (catch Exception _
            (if false
              (smoke 42)
              nil)))
@@ -2321,7 +2324,7 @@
            10 (smoke 42)
            20 (smoke 42)
            10)
-         (catch Exception e
+         (catch Exception _
            (if false
              (smoke 42)
              nil)))
@@ -2335,7 +2338,7 @@
            10 (smoke 42)
            20 (smoke 42)
            10)
-         (catch Exception e
+         (catch Exception _
            (if false
              (smoke 42)
              nil)))

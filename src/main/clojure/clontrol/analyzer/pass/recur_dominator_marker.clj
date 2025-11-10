@@ -28,7 +28,9 @@
    (fn [return child-node]
      (if (node/tail? child-node)
        (if (= (:op child-node) :recur)
-         (return (assoc child-node :recur-dominator? true))
+         (mark-intermediate
+          return
+          (assoc child-node :recur-dominator? true))
          (mark-tail return child-node))
        (mark-intermediate return child-node)))
    node))
