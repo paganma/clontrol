@@ -194,16 +194,16 @@
       (*emit-direct*
        return
        (fn [return value-form]
-         (let [result-symbol (gensym "e__")]
+         (let [effect-symbol (gensym "e__")]
            (plug
             (fn [body-form]
               (return
                (prepend-binding
                 body-form
                 'let*
-                result-symbol
+                effect-symbol
                 value-form)))
-            result-symbol)))
+            effect-symbol)))
        value-node)
       (emit-tail return plug value-node))))
 
@@ -599,10 +599,13 @@
   (chain emit-let*-binding return plug let*-binding-nodes))
 
 (defn capture-closure-hole
-  [return return-tail plug node]
-  (if (seq (:shadowings node))
-    (capture-hole return return-tail plug)
-    (return return-tail plug)))
+  [return
+   return-body
+   plug
+   {shadowed-symbols :shadowings}]
+  (if (seq shadowed-symbols)
+    (capture-hole return return-body plug)
+    (return return-body plug)))
 
 (defn emit-let*
   [return

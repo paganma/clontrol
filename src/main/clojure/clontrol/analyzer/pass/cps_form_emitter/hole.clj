@@ -27,17 +27,17 @@
        argument-symbol))))
 
 (defn capture-hole
-  [return return-tail plug]
+  [return return-body plug]
   (hole->continuation-form
    (fn [continuation-form]
      (if (symbol? continuation-form)
-       (return return-tail plug)
+       (return return-body plug)
        (let [continuation-symbol (gensym "p__")]
          (return
-          (fn [tail-form]
-            (return-tail
+          (fn [body-form]
+            (return-body
              (prepend-binding
-              tail-form
+              body-form
               'let*
               continuation-symbol
               continuation-form)))
