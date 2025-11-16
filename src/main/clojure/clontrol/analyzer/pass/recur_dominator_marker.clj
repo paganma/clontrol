@@ -11,27 +11,25 @@
   (node/update-children
    return
    (fn [return child-node]
-     (if (node/intermediate? child-node)
+     (if (node/tail? child-node)
+       (mark-tail return child-node)
        (if (:recur-dominator? node)
          (mark-intermediate return (assoc child-node :recur-dominator? true))
-         (mark-intermediate return child-node))
-       (mark-tail return child-node)))
+         (mark-intermediate return child-node))))
    node))
 
 (defn mark-tail
   [return node]
   (node/update-children
    (fn [node]
-     (if (node/some-child? :recur-dominator? node)
+     (if (= (:op node) :recur)
        (mark-intermediate return (assoc node :recur-dominator? true))
-       (return node)))
+       (if (node/some-child? :recur-dominator? node)
+         (mark-intermediate return (assoc node :recur-dominator? true))
+         (return node))))
    (fn [return child-node]
      (if (node/tail? child-node)
-       (if (= (:op child-node) :recur)
-         (mark-intermediate
-          return
-          (assoc child-node :recur-dominator? true))
-         (mark-tail return child-node))
+       (mark-tail return child-node)
        (mark-intermediate return child-node)))
    node))
 
