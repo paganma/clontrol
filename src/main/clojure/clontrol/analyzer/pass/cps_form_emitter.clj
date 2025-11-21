@@ -20,8 +20,6 @@
             prepend-statement]]
    [clontrol.analyzer.pass.pure-marker
     :refer [mark-pure]]
-   [clontrol.analyzer.pass.recur-dominator-marker
-    :refer [mark-recur-dominator]]
    [clontrol.analyzer.pass.shadowings-tagger
     :refer [tag-shadowings]]
    [clontrol.operator.intrinsic.thunk
@@ -94,16 +92,6 @@
     (*emit-direct* return plug node)
     (emit return plug node)))
 
-(defn preserve-loop-hole
-  [plug node]
-  (if (:recur-dominator? node)
-    (fn [return form]
-      (plug
-       (fn [body-form]
-         (return `(thunk/trampoline ~body-form)))
-       form))
-    plug))
-
 (defn emit-cps-form
   "Emits the CPS form of `node` yielding its result to a continuation form. 
   
@@ -116,7 +104,6 @@
    {:walk :none
     :depends #{#'mark-direct
                #'mark-pure
-               #'mark-recur-dominator
                #'tag-shadowings}}}
   ([node]
    (let [passes-options
@@ -127,23 +114,16 @@
   ([node continuation-form]
    (trampoline emit-cps-form identity node continuation-form))
   ([return node continuation-form]
-   (let [plug (continuation-form->hole continuation-form)]
-     (if (:recur-dominator? node)
-       (let [continuation-symbol (gensym "k__")
-             {{loop-symbol :loop-id
-               parameter-symbols :loop-parameters}
-              :env} node]
-         (emit-tail
-          (fn [body-form]
-            `(thunk/trampoline
-              ((fn*
-                ~loop-symbol
-                [~continuation-symbol ~@parameter-symbols]
-                ~body-form)
-               ~continuation-form ~@parameter-symbols)))
-          (continuation-form->hole continuation-symbol)
-          node))
-       (emit-tail return plug node)))))
+   (let [plug (continuation-form->hole continuation-form)
+         {{context :context} :env} node]
+     (emit-tail
+      (fn [form]
+        (return
+         (if (= context :ctx/expr)
+           `(thunk/trampoline ~form)
+           form)))
+      plug
+      node))))
 
 (def run-cps-form-emitter
   "Run `emit-cps-form` and related transformations."
@@ -538,7 +518,7 @@
                  continuation-form
                  argument-forms)
                 invoke-node)))
-           (preserve-loop-hole plug invoke-node))
+           plug)
           :unknown
           (capture-hole
            (fn [return plug]
@@ -561,7 +541,7 @@
                     function-form
                     argument-forms)
                    invoke-node)))
-              (preserve-loop-hole plug invoke-node)))
+              plug))
            return
            plug)))
       argument-nodes))
@@ -700,13 +680,12 @@
            (fn [continuation-form]
              (return
               (with-node-meta
-                `(thunk/trampoline
-                  ~(list*
-                    `(fn* ~loop-symbol
-                          ([~continuation-symbol ~@binding-symbols]
-                           ~body-form))
-                    continuation-form
-                    binding-symbols))
+                (list*
+                 `(fn* ~loop-symbol
+                       ([~continuation-symbol ~@binding-symbols]
+                        ~body-form))
+                 continuation-form
+                 binding-symbols)
                 loop*-node)))
            plug))
         (continuation-form->hole continuation-symbol)
@@ -821,6 +800,7 @@
    plug
    {argument-nodes :exprs
     loop-symbol :loop-id
+    {passes-options :passes-opts} :env
     :as recur-node}]
   (emit-values
    return
@@ -828,9 +808,12 @@
      (hole->continuation-form
       (fn [continuation-form]
         (return
-         (with-node-meta
-           `(thunk ~(list* loop-symbol continuation-form argument-forms))
-           recur-node)))
+         (let [recur-form (list* loop-symbol continuation-form argument-forms)]
+           (with-node-meta
+             (if (:cps-form-emitter/thunk-recur? passes-options true)
+               `(thunk ~recur-form)
+               recur-form)
+             recur-node))))
       plug))
    argument-nodes))
 
@@ -942,6 +925,7 @@
    plug
    {handler-node :handler
     argument-nodes :args
+    {passes-options :passes-opts} :env
     :as shift*-node}]
   (hole->continuation-form
    (fn [continuation-form]
@@ -957,7 +941,13 @@
               shift*-node)))
          argument-nodes))
       handler-node))
-   (preserve-loop-hole plug shift*-node)))
+   (if (:cps-form-emitter/thunk-recur? passes-options true)
+     (fn [return form]
+       (plug
+        (fn [form]
+          (return `(thunk/trampoline ~form)))
+        form))
+     plug)))
 
 (defmethod emit
   :shift

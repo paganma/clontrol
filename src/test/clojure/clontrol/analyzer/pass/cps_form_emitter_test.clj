@@ -34,7 +34,9 @@
   (let [local-environment
         (merge
          (*make-local-environment*)
-         {:passes-opts {:cps-form-emitter/continuation-form continuation-form}})]
+         {:passes-opts {:cps-form-emitter/continuation-form continuation-form
+                        :cps-form-emitter/thunk-recur? false}
+          :context :ctx/return})]
     (binding [*scheduled-pass* run-cps-form-emitter]
       (analyzer/analyze body-form local-environment))))
 
