@@ -86,14 +86,40 @@
         return-symbol 'return]
     `(defn ~function-name
        ~@(for [parameter-symbols (make-parameter-arities (- shifter-arities 1))]
-           `([~function-symbol ~return-symbol ~@parameter-symbols]
+           `([~shifter-symbol ~return-symbol ~@parameter-symbols]
              (. ~shifter-symbol invoke-shift ~return-symbol ~@parameter-symbols)))
        ~(let [fixed-parameter-symbols (vec (make-parameter-arity (- shifter-arities 1)))
               rest-symbol 'ps
               parameter-symbols (conj fixed-parameter-symbols '& rest-symbol)
               argument-form `(list* ~@fixed-parameter-symbols ~rest-symbol)]
-          `([~function-symbol ~return-symbol ~@parameter-symbols]
+          `([~shifter-symbol ~return-symbol ~@parameter-symbols]
             (. ~shifter-symbol apply-shift ~return-symbol ~argument-form))))))
 
 (def-call-shift-fn
   call-shift)
+
+
+(defmacro ^:private def-call-unknown-fn
+  {:clj-kondo/lint-as 'clojure.core/declare}
+  [function-name]
+  (let [shifter-class-symbol 'clontrol.function.shifter.Shifter
+        function-symbol 'function
+        shifter-symbol (vary-meta function-symbol assoc :tag shifter-class-symbol)
+        return-symbol 'return]
+    `(defn ~function-name
+       ~@(for [parameter-symbols (make-parameter-arities (- shifter-arities 1))]
+           `([~function-symbol ~return-symbol ~@parameter-symbols]
+             (if (shifter? ~function-symbol)
+               (. ~shifter-symbol invoke-shift ~return-symbol ~@parameter-symbols)
+               (~return-symbol (~function-symbol ~@parameter-symbols)))))
+       ~(let [fixed-parameter-symbols (vec (make-parameter-arity (- shifter-arities 1)))
+              rest-symbol 'ps
+              parameter-symbols (conj fixed-parameter-symbols '& rest-symbol)
+              argument-form `(list* ~@fixed-parameter-symbols ~rest-symbol)]
+          `([~function-symbol ~return-symbol ~@parameter-symbols]
+            (if (shifter? ~function-symbol)
+              (. ~shifter-symbol apply-shift ~return-symbol ~argument-form)
+              (~return-symbol (~function-symbol ~argument-form))))))))
+
+(def-call-unknown-fn
+  call-unknown)

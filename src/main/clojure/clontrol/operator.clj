@@ -19,7 +19,8 @@
         (merge
          (*make-local-environment*)
          {:passes-opts
-          {:cps-form-emitter/continuation-form continuation-form}
+          {:cps-form-emitter/continuation-form continuation-form
+           :cps-form-emitter/thunk-recur? true}
           :locals local-bindings
           :context :ctx/expr})]
     (binding [*scheduled-pass* run-cps-form-emitter]

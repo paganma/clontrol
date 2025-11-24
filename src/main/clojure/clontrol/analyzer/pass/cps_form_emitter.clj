@@ -27,6 +27,7 @@
     :as thunk]
    [clontrol.function.shifter
     :refer [call-shift
+            call-unknown
             shifter?]]))
 
 
@@ -115,11 +116,13 @@
    (trampoline emit-cps-form identity node continuation-form))
   ([return node continuation-form]
    (let [plug (continuation-form->hole continuation-form)
-         {{context :context} :env} node]
+         {{context :context
+           passes-options :passes-opts} :env} node]
      (emit-tail
       (fn [form]
         (return
-         (if (= context :ctx/expr)
+         (if (and (:cps-form-emitter/thunk-recur? passes-options)
+                  (not (= context :ctx/return)))
            `(thunk/trampoline ~form)
            form)))
       plug
@@ -520,29 +523,16 @@
                 invoke-node)))
            plug)
           :unknown
-          (capture-hole
-           (fn [return plug]
-             (hole->continuation-form
-              (fn [continuation-form]
-                (plug
-                 (fn [body-form]
-                   (return
-                    `(if (shifter? ~function-form)
-                       ~(with-node-meta
-                          (list*
-                           `call-shift
-                           function-form
-                           continuation-form
-                           argument-forms)
-                          invoke-node)
-                       ~body-form)))
-                 (with-node-meta
-                   (list*
-                    function-form
-                    argument-forms)
-                   invoke-node)))
-              plug))
-           return
+          (hole->continuation-form
+           (fn [continuation-form]
+             (return
+              (with-node-meta
+                (list*
+                 `call-unknown
+                 function-form
+                 continuation-form
+                 argument-forms)
+                invoke-node)))
            plug)))
       argument-nodes))
    function-node))
@@ -810,7 +800,7 @@
         (return
          (let [recur-form (list* loop-symbol continuation-form argument-forms)]
            (with-node-meta
-             (if (:cps-form-emitter/thunk-recur? passes-options true)
+             (if (:cps-form-emitter/thunk-recur? passes-options)
                `(thunk ~recur-form)
                recur-form)
              recur-node))))
@@ -941,7 +931,7 @@
               shift*-node)))
          argument-nodes))
       handler-node))
-   (if (:cps-form-emitter/thunk-recur? passes-options true)
+   (if (:cps-form-emitter/thunk-recur? passes-options)
      (fn [return form]
        (plug
         (fn [form]
