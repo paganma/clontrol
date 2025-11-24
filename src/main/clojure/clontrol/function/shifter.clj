@@ -98,7 +98,6 @@
 (def-call-shift-fn
   call-shift)
 
-
 (defmacro ^:private def-call-unknown-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
   [function-name]
