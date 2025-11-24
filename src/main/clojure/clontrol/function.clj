@@ -133,6 +133,7 @@
                   (*make-local-environment*)
                   {:passes-opts
                    {:cps-form-emitter/continuation-form continuation-symbol
+                    :cps-form-emitter/thunk-recur? true
                     :direct-marker/direct-recur? false}
                    :locals local-bindings
                    :context :ctx/return
@@ -226,7 +227,7 @@
         (parse-local-bindings &env)]
     (with-meta
       (emit-fn-shift name-symbol signature-forms local-bindings)
-      (meta &form))))
+      (assoc (meta &form) :shift true))))
 
 
 ;;;; ** DEFN-CPS
