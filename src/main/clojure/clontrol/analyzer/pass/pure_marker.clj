@@ -12,8 +12,11 @@
   #{:const
     :deftype
     :maybe-class
-    :local
     :static-field
+    :the-var
+    :local
+    :var
+    :quote
     :value})
 
 (def ^:dynamic *compound-pure-operations*
@@ -25,20 +28,15 @@
     :do
     :if
     :instance-field
-    :keyword-invoke
     :let
     :letfn
     :local
     :loop
     :map
-    :quote
     :recur
     :set
-    :effect
     :shift
-    :the-var
     :try
-    :var
     :vector
     :with-meta})
 
