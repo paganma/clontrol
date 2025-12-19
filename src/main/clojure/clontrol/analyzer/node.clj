@@ -11,10 +11,15 @@
    (map? (:env value))
    (contains? value :form)))
 
-(defn tail-node?
+(defn tail?
   "Returns `true` if the `node` sits in the tail (or return) position."
   [{{context :context} :env}]
   (= context :ctx/return))
+
+(defn intermediate?
+  "Returns `true` if the `node` sits in an intermediate (not [[tail?]]) position."
+  [node]
+  (not (tail? node)))
 
 (defn read-children
   "Returns the vector of `node`'s child nodes."
@@ -44,7 +49,7 @@
   [predicate node]
   (every-child?
    (fn [child-node]
-     (or (not (tail-node? child-node))
+     (or (not (tail? child-node))
          (predicate child-node)))
    node))
 
@@ -106,7 +111,7 @@
   (update-children
    return
    (fn [return node]
-     (if (tail-node? node)
+     (if (tail? node)
        (transform return node)
        (return node)))
    node))

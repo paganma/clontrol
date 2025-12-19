@@ -106,6 +106,26 @@
   (let [phase :compile-syntax-check]
     (make-compiler-exception phase file line column symbol cause)))
 
+(def ^:dynamic *value-headers*
+  '#{fn* reify*})
+
+(defn parse-value
+  [form local-environment]
+  {:op :value
+   :env local-environment
+   :form form
+   :children []})
+
+(def ^:dynamic *effect-headers*
+  '#{deftype*})
+
+(defn parse-effect
+  [form local-environment]
+  {:op :effect
+   :env local-environment
+   :form form
+   :children []})
+
 (defn parse
   "Parses a `form` in a `local-environment` into an AST `node`. 
 
@@ -127,8 +147,12 @@
       ((case header
          clontrol.operator/shift* parse-shift*
          #_:else
-         *parse-default*)
-       form local-environment)
+         (cond
+           (*value-headers* header) parse-value
+           (*effect-headers* header) parse-effect
+           :else *parse-default*))
+       form
+       local-environment)
       (catch ExceptionInfo exception
         (let [source-info (ex-data exception)
               {file :file line :line column :column} source-info

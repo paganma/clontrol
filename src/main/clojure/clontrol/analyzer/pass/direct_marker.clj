@@ -3,8 +3,8 @@
   (:require
    [clojure.tools.analyzer.passes
     :refer [schedule]]
-   [clontrol.analyzer.pass.function-type-reader
-    :refer [read-function-type]]
+   [clontrol.analyzer.pass.control-type-reader
+    :refer [read-control-type]]
    [clontrol.analyzer.node
     :as node]))
 
@@ -13,15 +13,14 @@
   subtree."
   #{:case-test
     :const
+    :maybe-class
     :deftype
-    :fn
+    :value
+    :effect
     :import
     :keyword
     :local
-    :maybe-class
-    :maybe-host-form
     :quote
-    :reify
     :static-field
     :the-var
     :var})
@@ -78,7 +77,7 @@
   ([return node]
    (mark
     (fn [node]
-      (if (node/tail-node? node)
+      (if (node/tail? node)
         (unmark-recur-path return node)
         (return node)))
     node)))
@@ -126,7 +125,7 @@
    (fn [{function-node :fn
          :as invoke-node}]
      (return
-      (if (and (= (read-function-type function-node) :direct)
+      (if (and (= (read-control-type function-node) :direct)
                (node/every-child? :direct? invoke-node))
         (assoc invoke-node :direct? true)
         invoke-node)))

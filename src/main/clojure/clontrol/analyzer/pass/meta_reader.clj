@@ -1,41 +1,39 @@
 (ns clontrol.analyzer.pass.meta-reader
-  "Utilities to read meta-tags from an AST node")
+  "Utilities to read metadata from an AST node")
 
 (defmulti read-meta
-  "Reads the value of `meta-key` in `node`'s meta-map."
-  (fn [node _]
+  "Reads `node`'s meta-map."
+  (fn [node]
     (:op node)))
 
 (defn read-form-meta
-  [{form :form} meta-key]
-  (meta-key (meta form)))
+  [{form :form}]
+  (meta form))
 
 (defmethod read-meta
   :default
-  [node meta-key]
-  (read-form-meta node meta-key))
+  [node]
+  (read-form-meta node))
 
 (defn read-local-meta
   [{local-symbol :form
-    {locals-environment :locals} :env}
-   meta-key]
-  (or
+    {locals-environment :locals} :env}]
+  (merge
    (-> local-symbol
-       :form meta meta-key)
+       :form meta)
    (-> (local-symbol locals-environment)
-       :form meta meta-key)))
+       :form meta)))
 
 (defmethod read-meta
   :local
-  [local-node meta-key]
-  (read-local-meta local-node meta-key))
+  [local-node]
+  (read-local-meta local-node))
 
 (defn read-var-meta
-  [{var-meta :meta}
-   meta-key]
-  (meta-key var-meta))
+  [{var-meta :meta}]
+  var-meta)
 
 (defmethod read-meta
   :var
-  [local-node meta-key]
-  (read-var-meta local-node meta-key))
+  [local-node]
+  (read-var-meta local-node))

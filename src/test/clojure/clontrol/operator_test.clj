@@ -2,8 +2,6 @@
   (:require
    [clojure.test
     :refer [deftest is testing]]
-   [clontrol.function
-    :refer [fn-shift]]
    [clontrol.operator
     :refer [abort
             reset
@@ -24,61 +22,33 @@
 
 (deftest operator-test
 
-  (testing "Generator"
-    (letfn [(yield [k x] [k x])
-            (step [[k x]] (k x))
-            (fetch [[_ x]] x)]
-      (let [generator
-            (reset
-             (loop [a 0]
-               (shift yield a)
-               (recur (+ a 1))))]
-        (is (= (fetch (step generator)) 1))
-        (is (= (fetch (step (step generator))) 2)))))
-
-  (testing "CC Generator"
-    (let [yield
-          (fn-shift
-           [x]
-           (shift (fn [k] [k x])))]
-      (letfn
-       [(step [[k x]] (k x))
-        (fetch [[_ x]] x)]
+  (testing "Examples"
+    (testing "Generator"
+      (letfn [(yield [k x] [k x])
+              (step [[k x]] (k x))
+              (fetch [[_ x]] x)]
         (let [generator
               (reset
-               (loop [a 0]
-                 (yield a)
-                 (recur (+ a 1))))]
+                (loop [a 0]
+                  (shift yield a)
+                  (recur (+ a 1))))]
           (is (= (fetch (step generator)) 1))
-          (is (= (fetch (step (step generator))) 2))))))
+          (is (= (fetch (step (step generator))) 2)))))
 
-  (testing "Stateful Generator"
-    (letfn [(yield [k x]
-              (reset-to k (shift (fn [k] [k x]))))]
-      (let [fetch (fn [t] (second @t))
-            step (fn [t] (reset! t ((first @t) (second @t))))
-            generator
-            (atom
-             (reset
-              (loop [x 0]
-                (recur (shift yield (inc x))))))]
-        (dotimes [_ 10000]
-          (step generator))
-        (is (= (fetch generator) 10001)))))
+    (testing "Stateful Generator"
+      (letfn [(yield [k x]
+                (reset-to k (shift (fn [k] [k x]))))]
+        (let [fetch (fn [t] (second @t))
+              step (fn [t] (reset! t ((first @t) (second @t))))
+              generator
+              (atom
+               (reset
+                 (loop [x 0]
+                   (recur (shift yield (inc x))))))]
+          (dotimes [_ 10000]
+            (step generator))
+          (is (= (fetch generator) 10001))))))
 
-  (testing "Stateful Generator with Handlers"
-    (let [yield (fn-shift [x] (shift (fn [k] [k x])))
-          fetch (fn [t] (second @t))
-          step (fn [t] (reset! t ((first @t) (second @t))))
-          generator
-          (atom
-           (reset
-            (loop [x 0]
-              (yield (+ x 1))
-              (recur (inc x)))))]
-      (dotimes [_ 10000]
-        (step generator))
-      (is (= (fetch generator) 10001))))
 
   (testing "Direct recur in CPS loop"
     (reset
@@ -155,13 +125,6 @@
 
       (is (= (reset (shift fib 10)) 55))))
 
-  (testing "Composability"
-    (is (let [a
-              (fn-shift
-               [x]
-               (shift (fn [k] [(k 1) (k 2)])))]
-          (= (reset (a 1)) [1 2]))))
-
   (testing "Shift in CASE"
     (is (= (reset
             (case (shift (fn [k] (k 1)))
@@ -198,6 +161,7 @@
             t)
            1))
 
+    #_{:clj-kondo/ignore [:uninitialized-var]}
     (is (reset
           (def ^{:test (shift (fn [k] (k true)))} t))
         #'clontrol.operator-test/t)
@@ -254,6 +218,9 @@
            [[{:a 1} {:a 2}] [{:b 1} {:b 2}]])))
 
   (testing "Shift in SET!"
+    #_{:clj-kondo/ignore
+       [:inline-def
+        :uninitialized-var]}
     (is (= (do
              (def ^:dynamic *t*)
              (binding [*t* 0]
@@ -388,7 +355,7 @@
                 (loop [b 0]
                   (if (< b 10)
                     (do
-                      (if (> a 5)
+                      (when (> a 5)
                         (abort a))
                       (recur (inc b)))
                     b))
@@ -402,13 +369,13 @@
                 (loop [b 0]
                   (if (< b 10)
                     (do
-                      (if (> a 10)
+                      (when (> a 10)
                         (abort a))
                       (recur (inc b)))
                     b))
                 (if (< a 10)
                   (do
-                    (if (> a 5)
+                    (when (> a 5)
                       (abort a))
                     (recur (inc a)))
                   a)))
@@ -422,8 +389,7 @@
                     b))
                 (if (< a 10)
                   (do
-                    (if (> a 5)
-                      (abort a))
+                    (when (> a 5) (abort a))
                     (recur (inc a)))
                   a)))
              6))
@@ -534,17 +500,62 @@
            [1 nil])))
 
   (testing "Shift in TRY-CATCH"
+    (is (= (reset
+             (try
+               (try
+                 (shift (fn [k] (k 1)))
+                 (catch Exception _ 2))
+               (catch Exception _ 3)))
+           1))
+    (is (= (reset
+             (try
+               (try
+                 (throw (Exception. "inner"))
+                 (catch Exception _
+                   (shift (fn [k] (k 4)))))
+               (catch Exception _ 5)))
+           4))
+    (is (= (reset
+             (try
+               (throw (RuntimeException. "test"))
+               (catch RuntimeException _
+                 (shift (fn [k] (k :runtime))))
+               (catch Exception _
+                 (shift (fn [k] (k :exception))))))
+           :runtime))
+    (is (= (reset
+             (try
+               (throw (Exception. "test"))
+               (catch RuntimeException _
+                 (shift (fn [k] (k :runtime))))
+               (catch Exception _
+                 (shift (fn [k] (k :exception))))))
+           :exception))
+    (is (thrown?
+         Exception
+         (reset
+           (try
+             (shift (fn [_] (throw (Exception. "from shift"))))
+             (catch RuntimeException _ :caught)))))
+    (is (= (reset
+             (try
+               (shift (fn [_] (throw (Exception. "from shift"))))
+               (catch Exception _ :caught)))
+           :caught))
+    (is (= (reset
+             (try
+               (shift (fn [k]
+                        (try
+                          (k (throw (Exception. "from continuation")))
+                          (catch Exception _ :caught-from-k))))
+               (catch Exception _ :caught)))
+           :caught-from-k))
     (is (reset
-         (try
-           (shift (fn [_] true))
-           (catch Exception _
-             false))))
-    (is (reset
-         (try
-           (throw (ex-info "" {}))
-           false
-           (catch Exception _
-             (shift (fn [_] true))))))
+          (try
+            (throw (ex-info "" {}))
+            false
+            (catch Exception _
+              (shift (fn [_] true))))))
     (is (reset
          (try
            (shift (fn [_] true))
@@ -556,7 +567,148 @@
            (throw (ex-info "" {:msg (shift (fn [_] true))}))
            false
            (catch Exception _
-             false)))))
+             false))))
+    (is (thrown? Exception
+                 (reset
+                   (try
+                     (shift (fn [k] (k nil)))
+                     (catch Exception _
+                       false))
+                   (throw (ex-info "test" {})))))
+    (is (reset
+          (let [a (atom false)]
+            (try
+              (try
+                (shift (fn [k] (k nil)))
+                (catch clojure.lang.ExceptionInfo _
+                  (reset! a true)
+                  false))
+              (throw (ex-info "test" {}))
+              (catch clojure.lang.ExceptionInfo _))
+            @a)))
+    (is (reset
+          (let [a (atom true)]
+            (try
+              (try
+                (catch clojure.lang.ExceptionInfo _
+                  (reset! a false)
+                  false))
+              (shift (fn [k] (k nil)))
+              (throw (ex-info "test" {}))
+              (catch clojure.lang.ExceptionInfo _))
+            @a)))
+    (is (reset
+          (let [a (atom 0)]
+            (is (= @a 0))
+            (try
+              (swap! a inc)
+              (shift (fn [k] (k nil)))
+              (is (= @a 1))
+              (finally
+                (swap! a inc)
+                (shift (fn [k] (k nil)))
+                (is (= @a 2)))))))
+    (is (reset
+          (let [a (atom 0)]
+            (is (= @a 0))
+            (try
+              (try
+                (swap! a inc)
+                (shift (fn [k] (k nil)))
+                (is (= @a 1))
+                (throw (ex-info "test" {}))
+                (finally
+                  (swap! a inc)
+                  (shift (fn [k] (k nil)))
+                  (is (= @a 2))))
+              (catch Throwable _
+                (swap! a inc)))
+            (is (= @a 3)))))
+    (is (reset
+          (let [a (atom 0)]
+            (is (= @a 0))
+            (try
+              (try
+                (swap! a inc)
+                (shift (fn [k] (k nil)))
+                (is (= @a 1))
+                (throw (ex-info "test" {}))
+                (catch Throwable t
+                  (swap! a inc)
+                  (shift (fn [k] (k nil)))
+                  (is (= @a 2))
+                  (throw t))
+                (finally
+                  (swap! a inc)
+                  (shift (fn [k] (k nil)))
+                  (is (= @a 3))))
+              (catch Throwable _
+                (swap! a inc)))
+            (is (= @a 4)))))
+    (is (let [a (atom 0)
+              r (reset
+                  (is (= @a 0))
+                  (try
+                    (try
+                      (swap! a inc)
+                      (shift identity)
+                      (is (= @a 1))
+                      (throw (ex-info "test" {}))
+                      (catch Throwable t
+                        (swap! a inc)
+                        (shift (fn [k] (k nil)))
+                        (is (= @a 2))
+                        (throw t))
+                      (finally
+                        (swap! a inc)
+                        (shift (fn [k] (k nil)))
+                        (is (= @a 3))))
+                    (catch Throwable _
+                      (swap! a inc)))
+                  (is (= @a 4))
+                  (swap! a inc))]
+          (try
+            (r nil) ;; Deferring the continuation escapes the dynamic context of
+            ;; the outer try block
+            (catch Throwable _
+              (is (= @a 1))
+              (swap! a inc)))
+          (is (= @a 2)))))
+
+  #_{:clj-kondo/ignore [:inline-def]}
+  (testing "Shift with Dynamic VARS"
+    (def ^:dynamic *a* 0)
+    (def ^:dynamic *b* 0)
+    (def ^:dynamic *c* 0)
+    (is (= (binding [*a* 1]
+             (reset
+               (+ *a* (shift (fn [k] (k 2))))))
+           3))
+    (is (= (let [f (binding [*a* 1]
+                     (reset
+                       (+ *a* (shift identity))))]
+             (f 1)) ;; Deferring the continuations escapes the dynamic context
+           1))
+    (is (= (binding [*a* 10]
+             (reset
+               (let [result (shift (fn [k] [(k (* *a* 2)) (k (* *a* 3))]))]
+                 (+ *a* result))))
+           [30 40]))
+    (is (= (binding [*a* 5 *b* 3]
+             (reset
+               (+ *a* *b* (shift (fn [k] (k 1))))))
+           9))
+    (is (= (reset
+             (with-local-vars [a 1]
+               (+ (var-get a) (shift (fn [k] (k 2))))))
+           3))
+    (is (= (let [f (reset
+                     (with-local-vars [a 1]
+                       (+ (var-get a) (shift identity))))]
+             (f 1)) ;; with-local-vars vars are bound to the thread instead of
+           ;; the dynamic context, hence `f` can still access the value
+           ;; of `a`.
+           2)))
 
   (testing "Shift in WITH-META"
     (is (= (meta (reset ^{:a (shift (fn [k] (k true)))} [1 2 3]))
@@ -575,131 +727,49 @@
   (testing "Shift and Effects"
     (let [e (atom 0)]
       (letfn
-       [(n3-with-effect []
-          (swap! e inc)
-          3)]
+          [(n3-with-effect []
+             (swap! e inc)
+             3)]
 
         (reset
-         (+ 1 (n3-with-effect) (shift identity)))
+          (+ 1 (n3-with-effect) (shift identity)))
 
         (is (= @e 1))
 
         (reset
-         (+ (shift identity) (n3-with-effect)))
+          (+ (shift identity) (n3-with-effect)))
 
         (is (= @e 1))
 
         (reset
-         (let [_ (n3-with-effect)
-               b (shift identity)]
-           b))
+          (let [_ (n3-with-effect)
+                b (shift identity)]
+            b))
 
         (is (= @e 2))
 
         (reset
-         (let [a (shift identity)]
-           (+ a (n3-with-effect))))
+          (let [a (shift identity)]
+            (+ a (n3-with-effect))))
 
         (is (= @e 2)))))
 
-  #_(testing "Shift with Synchronization Primitives"
-      (reset
-       (let [m (atom nil)]
-         (locking (shift (fn [k] (k m)))
-           (swap! m not)))))
-
-  (testing "Local Handler Declaration"
-    (is (= (let [f (fn-shift [a] (shift (fn [k] (k [(+ a 1) (+ a 2)]))))]
-             (reset
-              (f 1)))
-           [2 3]))
-
-    (is (= (reset
-            (let [f (fn-shift
-                     [a]
-                     (shift (fn [k]
-                              [(k (+ a 1)) (k (+ a 2))])))]
-              (+ 1 (f 1))))
-           [3 4]))
-
-    (is (= (reset
-            (let [f (fn-shift
-                     [a]
-                     (let [g (fn-shift [x] (shift (fn [_] x)))]
-                       (shift
-                        (fn [k]
-                          [(k (+ a 1)) (k (+ a 2))]))
-                       (g 2)))]
-              (+ 1 (f 1))))
-           [2 2]))
-    (is (= (reset
-            (let [f (fn-shift [_] (shift (fn [_] 3)))]
-              (if (> (shift (fn [k] (k 11))) 10)
-                (do (f 2) 1)
-                1)))
-           3))
-    (is (= (reset
-            (let [f (fn-shift [_] (shift (fn [_] 3)))]
-              (if (> (shift (fn [k] (k 11))) 10)
-                (do (f 2) 1)
-                1)))
-           3))
-    (is (= (reset
-            (let [f (fn-shift
-                     [_]
-                     (shift (fn [_] 3))
-                       ;; Unreachable
-                     (recur 1))]
-              (if (> (shift (fn [k] (k 11))) 10)
-                (do (f 2) 1)
-                1)))
-           3)))
-
-  (testing "Looping Handler"
-    (is (=
-         (reset
-          (let [count-down
-                (fn-shift
-                 [x]
-                 (if (> x 0)
-                   (recur (dec x))
-                   x))]
-            (count-down 10)))
-         0))
-    (is (=
-         (reset
-          (let [count-down
-                (fn-shift
-                 [x]
-                 (if (> x 0)
-                   (recur (dec x))
-                   x))]
-            (count-down 10)))
-         0))
-    (is (=
-         (reset
-          (let [count-down
-                (fn-shift
-                 [x]
-                 (if (> x 0)
-                   (recur (shift (fn [k] (k (dec x)))))
-                   x))]
-            (count-down 10)))
-         0))
-    (is (=
-         (reset
-          (let [g (fn-shift
-                   [x]
-                   (if (> x 0)
-                     (recur (dec x))
-                     (shift (fn [_] 2))))]
-            (g 10)))
-         2)))
+  (testing "Shift with Synchronization Primitives"
+    (reset
+      (let [m (atom nil)]
+        (locking (shift (fn [k] (k m)))
+          (is (swap! m not))))))
 
   (testing "Error handling"
     (is (thrown?
          clojure.lang.Compiler$CompilerException
          (eval '(reset b5))))
+    (is (thrown?
+         clojure.lang.Compiler$CompilerException
+         (eval '(reset (do (let [a6 1] (shift identity)) a6)))))
+    (is (thrown?
+         clojure.lang.Compiler$CompilerException
+         (eval '(reset (do (let [a5 0] (let [a6 1] (shift identity))) a6)))))
     (is (thrown?
          clojure.lang.Compiler$CompilerException
          (eval '(let [] b6))))

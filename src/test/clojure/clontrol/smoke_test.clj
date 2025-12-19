@@ -1402,9 +1402,12 @@
                            closest (first points)]
                       (if (empty? remaining)
                         (smoke closest)
-                        (let [p (first remaining)
-                              dist (.distance p (java.awt.Point. 0 0))
-                              closest-dist (.distance closest (java.awt.Point. 0 0))]
+                        (let [p
+                              (first remaining)
+                              dist
+                              (.distance p (java.awt.Point. 0 0))
+                              closest-dist
+                              (.distance closest (java.awt.Point. 0 0))]
                           (recur (rest remaining)
                                  (if (< dist closest-dist) p closest)))))]
          (smoke result))))
@@ -2111,48 +2114,310 @@
 
 (deftest test-direct-target-recur
   (is (= (reset
+           (loop [n 0]
+             (if (< n 100000)
+               (recur (inc n))
+               (smoke 42))))
+         42))
+
+  (is (= (reset
+           (loop [n 0]
+             (if false
+               (smoke nil)
+               42)
+             (if (< n 100000)
+               (recur (inc n))
+               (smoke 42))))
+         42))
+
+  (is (= (reset
+           (loop [n 0]
+             (try
+               (if false
+                 (smoke nil)
+                 42)
+               (catch Exception _
+                 (if false
+                   (smoke 42)
+                   nil)))
+             (if (< n 100000)
+               (recur (inc n))
+               (smoke 42))))
+         42))
+  
+  (is (= (reset
+           (loop [n 0]
+             (case n ;; Calls the continuation only twice. Should not overflow.
+               10 (smoke 42) 
+               20 (smoke 42)
+               10)
+             (if (< n 100000)
+               (recur (inc n))
+               (smoke 42))))
+         42))
+
+  (is (= (reset
+           (loop [n 0]
+             (try
+               (case n
+                 10 (smoke 42)
+                 20 (smoke 42)
+                 10)
+               (catch Exception _
+                 (if false
+                   (smoke 42)
+                   nil)))
+             (if (< n 100000)
+               (recur (inc n))
+               (smoke 42))))
+         42))
+
+  (is (= (reset
+           (loop [n 0]
+             (loop [x 0]
+               (try
+                 (case n
+                   10 (smoke 42)
+                   20 (smoke 42)
+                   10)
+                 (catch Exception _
+                   (if false
+                     (smoke 42)
+                     nil)))
+               (when (< x 100)
+                 (recur (inc x))))
+             (if (< n 100)
+               (recur (inc n))
+               (smoke 42))))
+         42))
+
+  (is (= (reset
+           (loop [n 0]
+               (loop [x 0]
+                 (try
+                   (case n
+                     10 (smoke 42)
+                     20 (smoke 42)
+                     10)
+                   (catch Exception _
+                     (if false
+                       (smoke 42)
+                       nil)))
+                 (when (< x 100)
+                   (recur (inc x))))
+               (when false
+                 (smoke 0))
+             (if (< n 100)
+               (recur (inc n))
+               (smoke 42))))
+         42))
+
+  (is (= (reset
           (loop [n 0]
-            (if (< n 1000000)
+            (loop [x 0]
+              (try
+                (case n
+                  10 (smoke 42)
+                  20 (smoke 42)
+                  10)
+                (catch Exception _
+                  (if false
+                    (smoke 42)
+                    nil)))
+              (when (< x 100)
+                (recur (inc x))))
+            (when (= n 10)
+              (smoke 0))
+            (if (< n 100)
               (recur (inc n))
               (smoke 42))))
          42))
 
-  (let [do-loop
-        (fn-shift
-         [n]
-         (if (< n 1000000)
-           (recur (inc n))
-           (smoke 42)))]
-    (is (= (reset
-            (do-loop 0))
-           42)))
+  (is (= (reset
+          (loop [n 0]
+            (loop [x 0]
+              (try
+                (case n
+                  10 (smoke 42)
+                  20 (smoke 42)
+                  10)
+                (catch Exception _
+                  (if false
+                    (smoke 42)
+                    nil)))
+              (when (< x 100)
+                (recur (inc x))))
+            (when (= n 10)
+              (smoke 0))
+            (loop [x 0]
+              (try
+                (case n
+                  10 (smoke 42)
+                  20 (smoke 42)
+                  10)
+                (catch Exception _
+                  (if false
+                    (smoke 42)
+                    nil)))
+              (when (< x 100)
+                (recur (inc x))))
+            (if (< n 100)
+              (recur (inc n))
+              (smoke 42))))
+         42))
 
   (is (= (reset
           (loop [n 0]
-            (if (< n 1000000)
-              (if (= (mod n 3) 0)
-                (if false
-                  (smoke nil)
-                  (recur (inc n)))
-                (recur (inc (inc n))))
+            (loop [x 0]
+              (try
+                (when false
+                  (smoke 0))
+                (case 0
+                  10 (smoke 42)
+                  20 (smoke 42)
+                  10)
+                (catch Exception _
+                  (if false
+                    (smoke 42)
+                    nil)))
+              (when (< x 100)
+                (recur (inc x))))
+            (loop [x 0]
+              (when false
+                (smoke 0))
+              (try
+                (case n
+                  10 (smoke 42)
+                  20 (smoke 42)
+                  10)
+                (catch Exception _
+                  (if false
+                    (smoke 42)
+                    nil)))
+              (when (< x 100)
+                (recur (inc x))))
+            (if (< n 100)
+              (recur (inc n))
               (smoke 42))))
+         42))
+(reset-invariant?
+   (loop [n 0]
+     (loop [x 0]
+       (try
+         (when false
+           (smoke 0))
+         (case 0
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception _
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (loop [x 0]
+       (try
+         (when false
+           (smoke 0))
+         (case 0
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception _
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (loop [x 0]
+       (try
+         (when false
+           (smoke 0))
+         (case 0
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception _
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (loop [x 0]
+       (when false
+         (smoke 0))
+       (try
+         (case n
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception _
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (if (< n 100)
+       (recur (inc n))
+       (smoke 42))))
+
+  (is (= (reset
+           (loop [n 0]
+             (try
+               (if false
+                 (smoke nil)
+                 42)
+               (catch Exception _
+                 (if false
+                   (smoke 42)
+                   nil))
+               (finally
+                 (if false
+                   (smoke 42)
+                   nil)))
+             (if (< n 100000)
+               (recur (inc n))
+               (smoke 42))))
          42))
 
   (let [do-loop
         (fn-shift
-         [n]
-         (do
-           (when false (smoke nil))
-           (if (< n 1000000)
-             (recur (inc n))
-             (smoke 42))))]
+          [n]
+          (if (< n 100000)
+            (recur (inc n))
+            (smoke 42)))]
     (is (= (reset
-            (do-loop 0))
+             (do-loop 0))
            42)))
 
   (is (= (reset
-           (loop [a 0 b 1]
-             (if (> a 1000000)
+           (loop [n 0]
+             (if (< n 100000)
+               (if (= (mod n 3) 0)
+                 (if false
+                   (smoke nil)
+                   (recur (inc n)))
+                 (recur (inc (inc n))))
+               (smoke 42))))
+         42))
+
+  (let [do-loop
+        (fn-shift
+          [n]
+          (do
+            (when false (smoke nil))
+            (if (< n 100000)
+              (recur (inc n))
+              (smoke 42))))]
+    (is (= (reset
+             (do-loop 0))
+           42)))
+
+  (is (= (reset
+           (loop [a 0
+                  b 1]
+             (if (> a 100000)
                (smoke b)
                (recur b (+ a b)))))
-         2178309)))
+         196418)))

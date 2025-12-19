@@ -12,15 +12,15 @@
 
 (defn- emit-reset-to
   "Generates code for a continuation prompt executing `body-form` and yielding its
-  result to `continuation-form`. Uses the compiler environment
-  `bindings` (provided via `&env` in macros)."
-  [continuation-form body-form bindings]
+  result to `continuation-form`. Uses the local bindings
+  `local-bindings` (provided through ([[parse-local-bindings]] &env)."
+  [continuation-form body-form local-bindings]
   (let [local-environment
         (merge
          (*make-local-environment*)
          {:passes-opts
           {:cps-form-emitter/continuation-form continuation-form}
-          :locals (parse-local-bindings bindings)
+          :locals local-bindings
           :context :ctx/expr})]
     (binding [*scheduled-pass* run-cps-form-emitter]
       (analyzer/analyze body-form local-environment))))
@@ -48,7 +48,7 @@
    (with-meta
      (list* 'do body)
      (meta &form))
-   &env))
+   (parse-local-bindings &env)))
 
 (defmacro reset
   "Danvy and Filinski’s `reset` operator.

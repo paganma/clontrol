@@ -11,11 +11,8 @@
   subtree."
   #{:const
     :deftype
-    :local
-    :fn
     :maybe-class
-    :maybe-host-form
-    :reify
+    :local
     :static-field
     :value})
 
@@ -37,6 +34,7 @@
     :quote
     :recur
     :set
+    :effect
     :shift
     :the-var
     :try
