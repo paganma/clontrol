@@ -13,8 +13,6 @@
 
 (def basis (delay (build/create-basis {:project "deps.edn"})))
 
-(println (:paths @basis))
-
 (defn clean [_]
   (build/delete {:path "target"}))
 
