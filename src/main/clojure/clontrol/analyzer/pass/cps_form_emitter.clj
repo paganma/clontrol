@@ -26,8 +26,8 @@
     :refer [thunk]
     :as thunk]
    [clontrol.function.shifter
-    :refer [call-shift
-            call-unknown
+    :refer [invoke-shift
+            invoke-unknown
             shifter?]]))
 
 
@@ -516,7 +516,7 @@
              (return
               (with-node-meta
                 (list*
-                 `call-shift
+                 `invoke-shift
                  function-form
                  continuation-form
                  argument-forms)
@@ -528,7 +528,7 @@
              (return
               (with-node-meta
                 (list*
-                 `call-unknown
+                 `invoke-unknown
                  function-form
                  continuation-form
                  argument-forms)

@@ -3,7 +3,7 @@
   implicitly captures the continuation up to the nearest enclosing continuation
   prompt."
   (:import
-   [clontrol.function.shifter FnShift])
+   [clontrol.function.shifter Shifter])
   (:require
    [clontrol.analyzer
     :as analyzer
@@ -185,11 +185,11 @@
           (gensym "fn_cps__"))
         local-bindings
         (assoc local-bindings name-symbol (make-local-binding name-symbol))]
-    `(FnShift.
+    `(Shifter.
       ~(emit-fn-cps
         (fn [body-form]
           (if name-symbol
-            `(let* [~name-symbol (FnShift. ~loop-symbol)]
+            `(let* [~name-symbol (Shifter. ~loop-symbol)]
                ~body-form)
             body-form))
         loop-symbol
@@ -391,3 +391,4 @@
      (with-meta
        (cons `fn-shift function-tail-forms)
        function-meta))))
+
