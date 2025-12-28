@@ -15,101 +15,70 @@
   (for [i (range arities-count)]
     (make-parameter-arity i)))
 
-(defmacro ^:private def-Shifter-protocol
-  {:clj-kondo/lint-as 'clojure.core/defprotocol}
-  [protocol-name]
-  (let [this-symbol 'this
-        return-symbol 'return
-        invoke-symbol 'invoke-shift
-        apply-symbol 'apply-shift]
-    `(defprotocol ~protocol-name
-       (~invoke-symbol
-         ~@(for [parameter-symbols (make-parameter-arities shifter-arities)]
-             `[~this-symbol ~return-symbol ~@parameter-symbols]))
-       (~apply-symbol
-         [~this-symbol ~return-symbol ~'ps]))))
+(declare ^:private throw-out-of-prompt-exception)
 
-(declare invoke-shift)
+(defmacro ^:private def-Shifter-type
+  {:clj-kondo/lint-as 'clojure.core/deftype}
+  [type-name]
+  (let [handler-symbol (vary-meta 'handler assoc :tag 'clojure.lang.IFn)
+        this-symbol (gensym "this__")]
+    `(deftype ~type-name
+         [~handler-symbol]
+         clojure.lang.IFn
+         ~@(for [parameter-symbols (make-parameter-arities function-arities)]
+             `(invoke
+               [~this-symbol ~@parameter-symbols]
+               (throw-out-of-prompt-exception ~this-symbol))))))
 
-(declare apply-shift)
-
-(def-Shifter-protocol
-  Shifter)
+(def-Shifter-type Shifter)
 
 (definline shifter?
   [value]
   `(instance? clontrol.function.shifter.Shifter ~value))
 
-(declare ^:private throw-out-of-prompt-exception)
-
-(defmacro ^:private def-FnShift-type
-  {:clj-kondo/lint-as 'clojure.core/deftype}
-  [type-name]
-  (let [handler-symbol
-        (with-meta
-          'run-with-continuation
-          {:tag 'clojure.lang.IFn})]
-    `(deftype ~type-name
-         [~handler-symbol]
-
-         Shifter
-         ~@(for [parameter-symbols (make-parameter-arities shifter-arities)]
-             `(invoke-shift
-               [~'this ~'return ~@parameter-symbols]
-               (~handler-symbol ~'return ~@parameter-symbols)))
-         (apply-shift
-           [~'this ~'return ~'ps]
-           (. ~handler-symbol applyTo (list* ~'return ~'ps)))
-
-         clojure.lang.IFn
-         ~@(for [parameter-symbols (make-parameter-arities function-arities)]
-             `(invoke
-               [~'this ~@parameter-symbols]
-               (throw-out-of-prompt-exception ~'this))))))
-
-(def-FnShift-type
-  FnShift)
-
 (defn- throw-out-of-prompt-exception
-  [^clontrol.function.shifter.FnShift this]
+  [^Shifter this]
   (throw
    (ex-info
     (str this " can only be invoked within a continuation prompt.")
-    {:handler (.run-with-continuation this)})))
+    {:handler (.handler this)})))
 
-(defmacro ^:private def-call-shift-fn
+(defmacro ^:private def-invoke-shift-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
   [function-name]
   (let [shifter-class-symbol 'clontrol.function.shifter.Shifter
-        function-symbol 'function
-        shifter-symbol (vary-meta function-symbol assoc :tag shifter-class-symbol)
-        return-symbol 'return]
+        shifter-symbol (vary-meta 'function assoc :tag shifter-class-symbol)
+        handler-symbol (vary-meta 'handler assoc :tag 'clojure.lang.IFn)
+        return-symbol 'k]
     `(defn ~function-name
        ~@(for [parameter-symbols (make-parameter-arities (- shifter-arities 1))]
            `([~shifter-symbol ~return-symbol ~@parameter-symbols]
-             (. ~shifter-symbol invoke-shift ~return-symbol ~@parameter-symbols)))
+             (let [~handler-symbol (. ^Shifter ~shifter-symbol handler)]
+               (. ~handler-symbol invoke ~return-symbol ~@parameter-symbols))))
        ~(let [fixed-parameter-symbols (vec (make-parameter-arity (- shifter-arities 1)))
               rest-symbol 'ps
               parameter-symbols (conj fixed-parameter-symbols '& rest-symbol)
               argument-form `(list* ~@fixed-parameter-symbols ~rest-symbol)]
           `([~shifter-symbol ~return-symbol ~@parameter-symbols]
-            (. ~shifter-symbol apply-shift ~return-symbol ~argument-form))))))
+            (let [~handler-symbol (. ^Shifter ~shifter-symbol handler)]
+              (. ~handler-symbol applyTo (list* ~return-symbol ~argument-form))))))))
 
-(def-call-shift-fn
-  call-shift)
+(def-invoke-shift-fn invoke-shift)
 
-(defmacro ^:private def-call-unknown-fn
+(defmacro ^:private def-invoke-unknown-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
   [function-name]
   (let [shifter-class-symbol 'clontrol.function.shifter.Shifter
         function-symbol 'function
         shifter-symbol (vary-meta function-symbol assoc :tag shifter-class-symbol)
-        return-symbol 'return]
+        handler-symbol (vary-meta 'handler assoc :tag 'clojure.lang.IFn)
+        return-symbol 'k]
     `(defn ~function-name
        ~@(for [parameter-symbols (make-parameter-arities (- shifter-arities 1))]
            `([~function-symbol ~return-symbol ~@parameter-symbols]
              (if (shifter? ~function-symbol)
-               (. ~shifter-symbol invoke-shift ~return-symbol ~@parameter-symbols)
+               (let [~handler-symbol (. ^Shifter ~shifter-symbol handler)]
+                 (. ~handler-symbol invoke ~return-symbol ~@parameter-symbols))
                (~return-symbol (~function-symbol ~@parameter-symbols)))))
        ~(let [fixed-parameter-symbols (vec (make-parameter-arity (- shifter-arities 1)))
               rest-symbol 'ps
@@ -117,8 +86,8 @@
               argument-form `(list* ~@fixed-parameter-symbols ~rest-symbol)]
           `([~function-symbol ~return-symbol ~@parameter-symbols]
             (if (shifter? ~function-symbol)
-              (. ~shifter-symbol apply-shift ~return-symbol ~argument-form)
+              (let [~handler-symbol (. ^Shifter ~shifter-symbol handler)]
+                (. ~handler-symbol applyTo ~return-symbol (list* ~return-symbol ~argument-form)))
               (~return-symbol (~function-symbol ~argument-form))))))))
 
-(def-call-unknown-fn
-  call-unknown)
+(def-invoke-unknown-fn invoke-unknown)
