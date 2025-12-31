@@ -18,7 +18,7 @@
   "Given a `body` it defers its computation by creating the
   corresponding [[IThunk]]."
   [& body]
-  (let [this-symbol (gensym "_")]
+  (let [this-symbol (gensym "this__")]
     `(reify Thunk
        (run [~this-symbol] ~@body))))
 
