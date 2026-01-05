@@ -158,19 +158,22 @@
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
-  [return plug node context]
-  (let [shadowed-symbols (:shadowings node)]
-    (if (seq shadowed-symbols)
-      (reify-closure-hole
-       (fn [plug-tail plug-intermediate]
-         (emit-tail
-          (fn [intermediate-form]
-            (plug-tail return intermediate-form context))
-          plug-intermediate
-          node
-          context))
-       plug)
-      (emit-tail return plug node context))))
+  [return
+   plug
+   {shadowed-symbols :shadowings
+    :as node}
+   context]
+  (if (seq shadowed-symbols)
+    (reify-closure-hole
+     (fn [plug-tail plug-intermediate]
+       (emit-tail
+        (fn [intermediate-form]
+          (plug-tail return intermediate-form context))
+        plug-intermediate
+        node
+        context))
+     plug)
+    (emit-tail return plug node context)))
 
 (defn emit-value
   "Emits the `value-node`'s form yielding its result to `plug` in an intermediate
