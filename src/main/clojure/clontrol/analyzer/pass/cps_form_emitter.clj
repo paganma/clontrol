@@ -159,6 +159,63 @@
 
 (deftype Result [value])
 
+(defn emit-recur-intermediate
+  [return plug node context]
+  (emit-tail
+   (fn [result-form]
+     (let [result-symbol (gensym "i__")]
+       (plug
+        (fn [tail-form]
+          (return
+           (prepend-binding
+            `(if (instance? Result ~result-symbol)
+               ~(prepend-binding
+                 tail-form
+                 'let*
+                 result-symbol
+                 `(.value ~result-symbol))
+               ~result-symbol)
+            'let*
+            result-symbol
+            result-form)))
+        result-symbol
+        context)))
+   (with-meta
+     (fn [return intermediate-form context]
+       (if (:in-continuation? context)
+         (plug return intermediate-form context)
+         (plug
+          (fn [_]
+            (return `(Result. ~intermediate-form)))
+          intermediate-form
+          context)))
+     (meta plug))
+   node
+   (assoc context :in-recur-intermediate? true)))
+
+(defn emit-captured-intermediate
+  [return plug node context]
+  (hole->continuation-form
+   (fn [continuation-form]
+     (if (symbol? continuation-form)
+       (emit-tail return plug node context)
+       (let [continuation-symbol (gensym "p__")]
+         (emit-tail
+          (fn [tail-form]
+            (return
+             (prepend-binding
+              tail-form
+              'let*
+              continuation-symbol
+              continuation-form)))
+          ^{:function-form continuation-symbol}
+          (fn [return intermediate-form _]
+            (return `(~continuation-symbol ~intermediate-form)))
+          node
+          context))))
+   plug
+   context))
+
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
@@ -170,56 +227,10 @@
    context]
   (if (or (seq shadowed-symbols)
           (*branch-operations* operation))
-    (if (and (:recur-dominator? node) (not (:in-loop? context)))
-      (emit-tail
-       (fn [result-form]
-         (let [result-symbol (gensym "c__")]
-           (plug
-            (fn [tail-form]
-              (return
-               (prepend-binding
-                `(if (instance? Result ~result-symbol)
-                   ~(prepend-binding
-                     tail-form
-                     'let*
-                     result-symbol
-                     `(.value ~result-symbol))
-                   ~result-symbol)
-                'let*
-                result-symbol
-                result-form)))
-            result-symbol
-            context)))
-       (with-meta
-         (fn [return intermediate-form context]
-           (if (:in-continuation? context)
-             (plug return intermediate-form context)
-             (plug
-              (fn [_]
-                (return `(Result. ~intermediate-form)))
-              intermediate-form
-              context)))
-         (meta plug))
-       node
-       (assoc context :in-loop? true))
-      (hole->continuation-form
-       (fn [continuation-form]
-         (let [phi-symbol (gensym "p__")]
-           (emit-tail
-            (fn [tail-form]
-              (return
-               (prepend-binding
-                tail-form
-                'let*
-                phi-symbol
-                continuation-form)))
-            ^{:function-form phi-symbol}
-            (fn [return intermediate-form _]
-              (return `(~phi-symbol ~intermediate-form)))
-            node
-            context)))
-       plug
-       context))
+    (if (and (:recur-dominator? node)
+             (not (:in-recur-intermediate? context)))
+      (emit-recur-intermediate return plug node context)
+      (emit-captured-intermediate return plug node context))
     (emit-tail return plug node context)))
 
 (defn emit-value
