@@ -1,0 +1,11 @@
+{:lint-as
+ {clontrol.function/fn-shift clojure.core/fn,
+  clontrol.core/fn-shift clojure.core/fn
+  clontrol.function/defn-shift clojure.core/defn
+  clontrol.core/defn-shift clojure.core/defn
+
+  clontrol.function.shifter/def-Shifter-protocol clojure.core/defprotocol,
+  clontrol.function.shifter/def-FnShift-type clojure.core/deftype,
+  clontrol.function.shifter/def-invoke-unknown-fn clojure.core/declare
+
+  clontrol.core/re-export clojure.core/def}}
