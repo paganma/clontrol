@@ -15,57 +15,7 @@
    [clontrol.analyzer.pass.cps-form-emitter
     :refer [run-cps-form-emitter]]))
 
-(defn- emit-fn-shift
-  "Generates code for creating a shift function named `name-symbol` with specified
-  `arity-forms`. Uses the compiler environment `bindings` (provided via `&env`
-  in macros)."
-  [name-symbol arity-forms bindings]
-  (let [continuation-symbol
-        (gensym "k__")
-        loop-symbol
-        (if name-symbol
-          (gensym (str name-symbol "_cps__"))
-          (gensym "fn_cps__"))]
-    `(FnShift.
-      (fn
-        ~loop-symbol
-        ~@(let [local-bindings
-                (parse-local-bindings bindings)
-                local-bindings
-                (if name-symbol
-                  (assoc local-bindings name-symbol
-                         (make-local-binding name-symbol))
-                  local-bindings)]
-            (for [[parameter-symbols & body-forms] arity-forms]
-              (let [body-form
-                    `(do ~@body-forms)
-                    local-bindings
-                    (into local-bindings
-                          (map
-                           (fn [parameter-symbol]
-                             [parameter-symbol
-                              (make-local-binding parameter-symbol)]))
-                          parameter-symbols)
-                    local-environment
-                    (merge
-                     (*make-local-environment*)
-                     {:passes-opts
-                      {:cps-form-emitter/continuation-form continuation-symbol
-                       :direct-marker/direct-recur? false}
-                      :locals local-bindings
-                      :context :ctx/return
-                      :loop-id loop-symbol
-                      :loop-locals (count parameter-symbols)})]
-                `([~continuation-symbol ~@parameter-symbols]
-                  ~(let [body-form
-                         (binding [*scheduled-pass* run-cps-form-emitter]
-                           (analyzer/analyze body-form local-environment))]
-                     (if name-symbol
-                       `(let* [~name-symbol (FnShift. ~loop-symbol)]
-                          ~body-form)
-                       body-form))))))))))
-
-;;;; * SHIFT function macros
+;;;; * Function macros
 ;;; Parsing logic adapted from Clojure's [[fn/defn]] implementation.
 
 ;; Copyright (c) Rich Hickey. All rights reserved.  The use and distribution
@@ -75,11 +25,11 @@
 ;; software in any fashion, you are agreeing to be bound by the terms of this
 ;; license.  You must not remove this notice, or any other, from this software.
 
-;;;; ** FN-SHIFT
-;;; Parsing logic adapted from [[clojure.core/fn]].
+
+;;;; ** FN-CPS
 
 (defn- maybe-destructured
-  "Handles destructured parameters for fn-shift arities.
+  "Handles destructured parameters for function arities.
 
   Adapted from [[clojure.core/maybe-destructured]]."
   [params body]
@@ -158,9 +108,102 @@
     {:name name
      :signatures new-sigs}))
 
+(defn- emit-fn-cps
+  "Generates code for creating a CPS function named `name-symbol` with specified
+  `arity-forms`. Uses the local bindings `local-bindings` (provided
+  through ([[parse-local-bindings]] &env)."
+  ([name-symbol arity-forms local-bindings]
+   (emit-fn-cps identity name-symbol arity-forms local-bindings))
+  ([return-body name-symbol arity-forms local-bindings]
+   (let [continuation-symbol (gensym "k__")]
+     `(fn*
+       ~@(if name-symbol
+           [name-symbol]
+           nil)
+       ~@(for [[parameter-symbols & body-forms] arity-forms]
+           (let [body-form
+                 (list* 'do body-forms)
+                 local-bindings
+                 (assoc local-bindings name-symbol (make-local-binding name-symbol))
+                 local-bindings
+                 (into
+                  local-bindings
+                  (map
+                   (fn [parameter-symbol]
+                     [parameter-symbol (make-local-binding parameter-symbol)]))
+                  parameter-symbols)
+                 local-environment
+                 (merge
+                  (*make-local-environment*)
+                  {:passes-opts
+                   {:cps-form-emitter/continuation-form continuation-symbol
+                    :direct-marker/direct-recur? false}
+                   :locals local-bindings
+                   :context :ctx/return
+                   :loop-id name-symbol
+                   :loop-locals (count parameter-symbols)})]
+             `([~continuation-symbol ~@parameter-symbols]
+               ~(return-body
+                 (binding [*scheduled-pass* run-cps-form-emitter]
+                   (analyzer/analyze body-form local-environment))))))))))
+
+(defmacro fn-cps
+  "Constructor for a CPS function.
+
+  params => positional-params*, or positional-params* & rest-param
+  positional-param => binding-form
+  rest-param => binding-form
+  binding-form => name, or destructuring-form
+  
+  A `fn-shift` can only be invoked within a continuation prompt (e.g. in a
+  `reset` block, or in another `fn-shift`definition), where they can implicitly
+  capture the continuation. References to the [[clontrol.operator/shift]]
+  operator, as well as other calls to `fn-shift`, are allowed within the
+  executable context of the function's body.
+  
+  Produces an implementor of the [[clontrol.function.shifter/Shifter]]
+  protocol. Checkout [[clontrol.function.shifter]] for more information.
+  
+  Employs the same parsing logic as [[clojure.core/fn]]
+  (See https://clojure.org/reference/special_forms#fn for more informaton)."
+  [& sigs]
+  (let [{name-symbol :name
+         signature-forms :signatures}
+        (parse-fn sigs)
+        local-bindings
+        (parse-local-bindings &env)]
+    (with-meta
+      (emit-fn-cps name-symbol signature-forms local-bindings)
+      (meta &form))))
+
+
+;;;; ** FN-SHIFT
+
+(defn- emit-fn-shift
+  "Generates code for creating a SHIFT function named `name-symbol` with specified
+  `arity-forms`. Uses the local bindings `local-bindings` (provided
+  through ([[parse-local-bindings]] &env)."
+  [name-symbol arity-forms local-bindings]
+  (let [loop-symbol
+        (if name-symbol
+          (gensym (str name-symbol "_cps__"))
+          (gensym "fn_cps__"))
+        local-bindings
+        (assoc local-bindings name-symbol (make-local-binding name-symbol))]
+    `(FnShift.
+      ~(emit-fn-cps
+        (fn [body-form]
+          (if name-symbol
+            `(let* [~name-symbol (FnShift. ~loop-symbol)]
+               ~body-form)
+            body-form))
+        loop-symbol
+        arity-forms
+        local-bindings))))
+
 (defmacro
   fn-shift
-  "Constructor for a shift function.
+  "Constructor for a SHIFT function.
 
   params => positional-params*, or positional-params* & rest-param
   positional-param => binding-form
@@ -184,13 +227,15 @@
   [& sigs]
   (let [{name-symbol :name
          signature-forms :signatures}
-        (parse-fn sigs)]
+        (parse-fn sigs)
+        local-bindings
+        (parse-local-bindings &env)]
     (with-meta
-      (emit-fn-shift name-symbol signature-forms &env)
+      (emit-fn-shift name-symbol signature-forms local-bindings)
       (meta &form))))
 
-;;;; ** DEFN-SHIFT
-;;; Parsing logic adapted from [[clojure.core/defn]].
+
+;;;; ** DEFN-CPS
 
 (defn- sigs
   "Normalizes the function declaration `fdecl`.
@@ -283,9 +328,7 @@
         m (let [inline (:inline m)
                 ifn (first inline)
                 iname (second inline)]
-            ;; same as: (if (and (= 'fn ifn) (not (symbol? iname))) ...)
-            (if (if (clojure.lang.Util/equiv 'fn ifn)
-                  (if (instance? clojure.lang.Symbol iname) false true))
+            (if (and (= 'fn ifn) (not (symbol? iname)))
               ;; inserts the same fn name to the inline fn if it does not have
               ;; one
               (assoc m :inline (cons
@@ -300,6 +343,34 @@
     {:name (with-meta name m)
      :function-tail fdecl
      :function-meta {:rettag (:tag m)}}))
+
+(defmacro defn-cps
+  "Same as: `(def name (fn-shift [params* ] exprs*))` or 
+  `(def name (fn-cps ([params* ] exprs*)+))` with any doc-string or attrs
+  added to the var metadata. prepost-map defines a map with optional keys :pre
+  and :post that contain collections of pre or post conditions.
+  
+  See [[clontrol.function/fn-cps]] for more information.
+
+  Employs the same parsing logic and metadata handling
+  as [[clojure.core/defn]]."
+  {:arglists
+   '([name doc-string? attr-map? [params*] prepost-map? body]
+     [name doc-string? attr-map? ([params*] prepost-map? body) + attr-map?])
+   :clj-kondo/lint-as 'clojure.core/defn}
+  [name & fdecl]
+  (let [{name-symbol :name
+         function-tail-forms :function-tail
+         function-meta :function-meta}
+        (parse-defn name fdecl)]
+    (list
+     'def name-symbol
+     (with-meta
+       (cons `fn-cps function-tail-forms)
+       function-meta))))
+
+
+;;;; ** DEFN-SHIFT
 
 (defmacro defn-shift
   "Same as: `(def name (fn-shift [params* ] exprs*))` or 
@@ -320,7 +391,8 @@
          function-tail-forms :function-tail
          function-meta :function-meta}
         (parse-defn name fdecl)]
-    (list 'def name-symbol
-          (with-meta
-            (cons `fn-shift function-tail-forms)
-            function-meta))))
+    (list
+     'def name-symbol
+     (with-meta
+       (cons `fn-shift function-tail-forms)
+       function-meta))))
