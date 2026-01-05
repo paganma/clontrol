@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+    
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Compute release number
+        uses: cocogitto/cocogitto-action@v3
+        id: release
+        with:
+          release: true
+          git-user: 'Marco Paganoni'
+          git-user-email: 'paganma@usi.ch'
+
+      - name: Generate changelog
+        run: cog changelog --at ${{ steps.release.outputs.version }} -t full_hash > CHANGELOG.md
+
+      - name: Upload github release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          tag_name: v${{ steps.release.outputs.version }}
