@@ -5,35 +5,34 @@
     :refer [schedule]]
    [clojure.tools.analyzer.utils
     :refer [-source-info]]
-   [clontrol.analyzer.pass.control-type-reader
-    :refer [read-control-type]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
-    :refer [continuation-form->hole
-            reify-closure-hole
-            reify-hole
-            hole->continuation-form]]
+    :refer [hole->continuation-form
+            continuation-form->hole]]
+   [clontrol.analyzer.pass.validator
+    :refer [validate]]
    [clontrol.analyzer.pass.direct-marker
     :refer [mark-direct]]
+   [clontrol.analyzer.pass.shadowings-tagger
+    :refer [tag-shadowings]]
    [clontrol.analyzer.pass.form-builder
     :refer [construct-bindings
             prepend-binding
             construct-statements
             prepend-statement]]
+   [clontrol.analyzer.pass.function-type-reader
+    :refer [read-function-type]]
    [clontrol.analyzer.pass.pure-marker
     :refer [mark-pure]]
-   [clontrol.analyzer.pass.recur-dominator-marker
-    :refer [mark-recur-dominator]]
-   [clontrol.analyzer.pass.shadowings-tagger
-    :refer [tag-shadowings]]
    [clontrol.function.shifter
-    :refer [call-shift]]))
+    :refer [invoke-shift
+            invoke-unknown]]))
 
 
 ;;;; * Form Emitters
 
 (defmulti emit
   "Emits the CPS form of `node` yielding its result to `plug`."
-  (fn [_ _ node _]
+  (fn [_ _ node]
     (:op node)))
 
 (defn throw-unsupported
@@ -41,8 +40,7 @@
    _
    {operation :op
     form :form
-    local-environment :env}
-   _]
+    local-environment :env}]
   (throw
    (ex-info
     (str "Unable to emit nodes of type " operation ".")
@@ -58,16 +56,13 @@
 
 (defmethod emit
   :default
-  [return plug node context]
-  (*emit-default* return plug node context))
+  [return plug node]
+  (*emit-default* return plug node))
 
 (defn emit-original-form
   "Simply returns the `:form` of a `node`."
-  [return
-   plug
-   {form :form}
-   context]
-  (plug return form context))
+  [return plug {form :form}]
+  (plug return form))
 
 (def ^:dynamic *emit-direct*
   "The `emit` function called for nodes that are marked as `:direct?`.
@@ -88,10 +83,10 @@
 
 (defn emit-tail
   "Emits the `node`'s form yielding its result to `plug` in tail position."
-  [return plug node context]
+  [return plug node]
   (if (:direct? node)
-    (*emit-direct* return plug node context)
-    (emit return plug node context)))
+    (*emit-direct* return plug node)    
+    (emit return plug node)))
 
 (defn emit-cps-form
   "Emits the CPS form of `node` yielding its result to a continuation form. 
@@ -103,21 +98,21 @@
   yielded. Defaults to ``identity`."
   {:pass-info
    {:walk :none
-    :depends #{#'mark-direct
+    :depends #{#'validate
+               #'mark-direct
                #'mark-pure
-               #'mark-recur-dominator
                #'tag-shadowings}}}
   ([node]
+   (trampoline emit-cps-form identity node))
+  ([return node]
    (let [passes-options
          (-> node :env :passes-opts)
          continuation-form
          (:cps-form-emitter/continuation-form passes-options `identity)]
-     (emit-cps-form node continuation-form)))
-  ([node continuation-form]
-   (trampoline emit-cps-form identity node continuation-form))
-  ([return node continuation-form]
-   (let [plug (continuation-form->hole continuation-form)]
-     (emit-tail return plug node nil))))
+     (continuation-form->hole
+      (fn [plug]
+        (emit-tail return plug node))
+      continuation-form))))
 
 (def run-cps-form-emitter
   "Run `emit-cps-form` and related transformations."
@@ -126,16 +121,16 @@
 (defn collect
   "Collects `emit`'s result over each `node` in `nodes`, yielding the vector of
   resulting forms to `return`. Each resulting form yield its result to `plug`."
-  ([emit return plug nodes context]
-   (collect emit return plug nodes context []))
-  ([emit return plug nodes context forms]
+  ([emit return plug nodes]
+   (collect emit return plug nodes []))
+  ([emit return plug nodes forms]
    (if (seq nodes)
      (let [[node & nodes'] nodes]
        (letfn [(return-next
                  [form]
                  (let [forms' (conj forms form)]
-                   #(collect emit return plug nodes' context forms')))]
-         (emit return-next plug node context)))
+                   #(collect emit return plug nodes' forms')))]
+         (emit return-next plug node)))
      (return forms))))
 
 (defn chain
@@ -144,80 +139,89 @@
   the syntactic context in which the result for the previous `node` was
   emitted. Calls `plug` in a syntactic context in which all of the resulting
   forms have been plugged in sequence."
-  ([emit return plug nodes context]
-   (chain emit return plug nodes context []))
-  ([emit return plug nodes context forms]
+  ([emit return plug nodes]
+   (chain emit return plug nodes []))
+  ([emit return plug nodes forms]
    (if (seq nodes)
      (let [[node & nodes'] nodes]
        (letfn [(plug-next
-                 [return form context]
+                 [return form]
                  (let [forms' (conj forms form)]
-                   #(chain emit return plug nodes' context forms')))]
-         (emit return plug-next node context)))
-     (plug return forms context))))
+                   #(chain emit return plug nodes' forms')))]
+         (emit return plug-next node)))
+     (plug return forms))))
 
-(def ^:dynamic *escaped-operations*
-  #{:if :case :try})
+(defn- generate-shadow-aliases
+  [shadowed-symbols]
+  (let [postfix-symbol (gensym "__")]
+    (for [shadowed-symbol shadowed-symbols]
+      [shadowed-symbol (symbol (str shadowed-symbol postfix-symbol))])))
 
-(defn reify-intermediate-hole
-  [return plug node context]
-  (if (:recur-dominator? node)
-    (reify-closure-hole return plug context)
-    (reify-hole return plug)))
+(defn- save-shadow-aliases
+  [form shadow-aliases]
+  (if (seq shadow-aliases)
+    (let [[[left-symbol right-symbol] & shadow-aliases'] shadow-aliases
+          form' (prepend-binding form 'let* right-symbol left-symbol)]
+      (recur form' shadow-aliases'))
+    form))
+
+(defn- restore-shadow-aliases
+  [form shadow-aliases]
+  (if (seq shadow-aliases)
+    (let [[[left-symbol right-symbol] & shadow-aliases'] shadow-aliases
+          form' (prepend-binding form 'let* left-symbol right-symbol)]
+      (recur form' shadow-aliases'))
+    form))
 
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
-  [return
-   plug
-   {operation :op
-    shadowed-symbols :shadowings
-    :as node}
-   context]
-  (if (or (seq shadowed-symbols)
-          (*escaped-operations* operation))
-    (reify-intermediate-hole
-     (fn [plug-tail plug-intermediate]
-       (emit-tail
-        (fn [intermediate-form]
-          (plug-tail return intermediate-form context))
-        plug-intermediate
-        node
-        context))
-     plug
-     node
-     context)
-    (emit-tail return plug node context)))
+  [return plug node]
+  (let [shadowed-symbols (:shadowings node)]
+    (if (seq shadowed-symbols)
+      (let [aliases (generate-shadow-aliases shadowed-symbols)]
+        (emit-tail
+         (fn [form]
+           (return (save-shadow-aliases form aliases)))
+         (fn [return form]
+           (let [scope-symbol (gensym "s__")]
+             (plug
+              (fn [body-form]
+                (return
+                 (-> body-form
+                     (restore-shadow-aliases aliases)
+                     (prepend-binding 'let* scope-symbol form))))
+              scope-symbol)))
+         node))
+      (emit-tail return plug node))))
 
 (defn emit-value
   "Emits the `value-node`'s form yielding its result to `plug` in an intermediate
   position in which `value-node`'s value is used. If `value-node` is not
   `:pure?`, the result will be plugged in a syntactic context in which its
   values have been evaluated."
-  [return plug value-node context]
+  [return plug value-node]
   (if (:pure? value-node)
-    (emit-intermediate return plug value-node context)
-    (if (:direct? value-node)
-      (*emit-direct*
-       return
-       (fn [return value-form context]
-         (let [result-symbol (gensym "e__")]
-           (plug
-            (fn [body-form]
-              (return (prepend-binding body-form 'let* result-symbol value-form)))
-            result-symbol
-            context)))
-       value-node
-       context)
-      (emit-intermediate return plug value-node context))))
+    ;; Defer evaluation of the value
+    (emit-intermediate return plug value-node)
+    ;; Force evaluation of the value before plugging it
+    (emit-intermediate
+     return
+     (fn [return value-form]
+       (let [result-symbol (gensym "e__")]
+         (plug
+          (fn [body-form]
+            (return (prepend-binding body-form 'let* result-symbol value-form)))
+          result-symbol)))
+     value-node)))
 
 (defn emit-values
   "Chains [[emit-value]] over multiple `value-nodes` yielding the vector of
   resulting value forms to `plug`. Plugs the result in a syntactic context in
   which all of the value forms have been bound in sequence, and their effects
   have been evaluated."
-  [return plug value-nodes context]
-  (chain emit-value return plug value-nodes context))
+  [return plug value-nodes]
+  (chain emit-value return plug value-nodes))
 
 
 ;;;; ** Operation Emitters
@@ -230,33 +234,29 @@
    plug
    {hash-code :hash
     test-node :test
-    body-node :then}
-   context]
+    body-node :then}]
   (*emit-direct*
    return
-   (fn [return test-form context] 
+   (fn [return test-form] 
      (emit-tail
       (fn [body-form]
         (return [hash-code [test-form body-form]]))
       plug
-      body-node
-      context))
-   test-node
-   context))
+      body-node))
+   test-node))
 
 (defn emit-case-branches
-  [return plug case-then-nodes context]
-  (collect emit-case-branch return plug case-then-nodes context))
+  [return plug case-then-nodes]
+  (collect emit-case-branch return plug case-then-nodes))
 
 (defn emit-case-map
-  [return plug test-nodes then-nodes context]
+  [return plug test-nodes then-nodes]
   (let [branch-nodes (map merge test-nodes then-nodes)]
     (emit-case-branches
      (fn [case-branch-forms]
        (return (into (sorted-map) case-branch-forms)))
      plug
-     branch-nodes
-     context)))
+     branch-nodes)))
 
 (defn emit-case
   [return
@@ -270,16 +270,16 @@
     switch-type :switch-type
     test-type :test-type
     skip-set :skip-check?
-    :as case-node}
-   context]
+    :as case-node}]
   (emit-value
    return
-   (fn [return test-form context]
+   (fn [return test-form]
      (emit-case-map
       (fn [case-map]
         (emit-value
          (fn [default-form]
-           (return
+           (plug
+            return
             (with-node-meta
               `(case*
                 ~test-form
@@ -291,19 +291,17 @@
                 ~skip-set)
               case-node)))
          plug
-         default-node
-         context))
+         default-node))
       plug
       match-nodes
-      then-nodes
-      context))
-   test-node
-   context))
+      then-nodes)
+     plug)
+   test-node))
 
 (defmethod emit
   :case
-  [return plug case-node context]
-  (emit-case return plug case-node context))
+  [return plug case-node]
+  (emit-case return plug case-node))
 
 
 ;;;; *** DEF
@@ -317,43 +315,40 @@
     doc-string :doc
     value-node :init
     meta-node :meta
-    :as def-node}
-   context]
+    :as def-node}]
   (emit-map
    return
-   (fn [return def-meta-form context]
+   (fn [return def-meta-form]
      (let [name-symbol
-           (with-meta name-symbol
-             (if-let [arglists (:arglists (meta name-symbol))]
-               (assoc def-meta-form :arglists (list 'quote arglists))
-               def-meta-form))]
+           (if-let [arglists (:arglists (meta name-symbol))]
+             (with-meta name-symbol
+               (assoc def-meta-form :arglists (list 'quote arglists)))
+             (with-meta name-symbol def-meta-form))
+           maybe-doc-string
+           (when doc-string [doc-string])]
        (if value-node
          (emit-value
           return
-          (fn [return value-form context]
+          (fn [return value-form]
             (plug
              return
              (with-node-meta
                `(def ~name-symbol
-                  ~@(when doc-string [doc-string])
+                  ~@maybe-doc-string
                   ~value-form)
-               def-node)
-             context))
-          value-node
-          context)
+               def-node)))
+          value-node)
          (plug
           return
           (with-node-meta
             `(def ~name-symbol)
-            def-node)
-          context))))
-   meta-node
-   context))
+            def-node)))))
+   meta-node))
 
 (defmethod emit
   :def
-  [return plug def-node context]
-  (emit-def return plug def-node context))
+  [return plug def-node]
+  (emit-def return plug def-node))
 
 
 ;;;; *** DO
@@ -363,35 +358,32 @@
   intermediate position in which `statement-node`'s value is *not* used. Plugs
   `nil` in a syntactic context in which the form of `statement-node` has been
   evaluated."
-  [return plug statement-node context]
-  (emit-intermediate
-   return
-   (fn [return statement-form context]
-     (plug
-      (fn [body-form]
+  [return plug statement-node]
+  (plug
+   (fn [body-form]
+     (emit-intermediate
+      return
+      (fn [return statement-form]
         (return (prepend-statement body-form statement-form)))
-      nil
-      context))
-   statement-node
-   context))
+      statement-node))
+   nil))
 
 (defn emit-statements
   "Chains [[emit-statement]] over multiple `statement-nodes`. Plugs `nil` in a
   syntactic context in which the effects of each statement have been evaluated
   in sequence." 
-  [return plug statement-nodes context]
-  (chain emit-statement return plug statement-nodes context))
+  [return plug statement-nodes]
+  (chain emit-statement return plug statement-nodes))
 
 (defn emit-do
   [return
    plug
    {statement-nodes :statements
     return-node :ret
-    :as do-node}
-   context]
+    :as do-node}]
   (emit-statements
    return
-   (fn [return _ context]
+   (fn [return _]
      (emit-tail
       (fn [return-form]
         (return
@@ -399,15 +391,13 @@
            `(construct-statements (~return-form))
            do-node)))
       plug
-      return-node
-      context))
-   statement-nodes
-   context))
+      return-node))
+   statement-nodes))
 
 (defmethod emit
   :do
-  [return plug do-node context]
-  (emit-do return plug do-node context))
+  [return plug do-node]
+  (emit-do return plug do-node))
 
 
 ;;;; *** HOST-INTEROP
@@ -417,24 +407,21 @@
    plug
    {target-node :target
     host-symbol :m-or-f
-    :as host-interop-node}
-   context]
+    :as host-interop-node}]
   (emit-value
    return
-   (fn [return target-form context]
+   (fn [return target-form]
      (plug
       return
       (with-node-meta
         `(. ~target-form ~host-symbol)
-        host-interop-node)
-      context))
-   target-node
-   context))
+        host-interop-node)))
+   target-node))
 
 (defmethod emit
   :host-interop
-  [return plug host-interop-node context]
-  (emit-host-interop return plug host-interop-node context))
+  [return plug host-interop-node]
+  (emit-host-interop return plug host-interop-node))
 
 
 ;;;; *** IF
@@ -445,93 +432,84 @@
    {test-node :test
     then-node :then
     else-node :else
-    :as if-node}
-   context]
+    :as if-node}]
   (emit-value
    return
-   (fn [return test-form context]
+   (fn [return test-form]
      (emit-tail
       (fn [then-form]
         (emit-tail
          (fn [else-form]
-           (return
+           (plug
+            return
             (with-node-meta
               `(if ~test-form ~then-form ~else-form)
               if-node)))
          plug
-         else-node
-         context))
+         else-node))
       plug
-      then-node
-      context))
-   test-node
-   context))
+      then-node)
+     plug)
+   test-node))
 
 (defmethod emit
   :if
-  [return plug if-node context]
-  (emit-if return plug if-node context))
+  [return plug if-node]
+  (emit-if return plug if-node))
 
 
-;;;; *** HOST-CALL
+;;;; *** INSTANCE-CALL
 
-(defn emit-host-call
+(defn emit-instance-call
   [return
    plug
-   {target-node :target
+   {instance-node :instance
     method-symbol :method
     argument-nodes :args
-    :as host-call-node}
-   context]
+    :as instance-call-node}]
   (emit-value
    return
-   (fn [return target-form context]
+   (fn [return target-form]
      (emit-values
       return
-      (fn [return argument-forms context]
+      (fn [return argument-forms]
         (plug
          return
          (with-node-meta
-           (list* '. target-form method-symbol argument-forms)
-           host-call-node)
-         context))
-      argument-nodes
-      context))
-   target-node
-   context))
+           `(. ~target-form ~(cons method-symbol argument-forms))
+           instance-call-node)))
+      argument-nodes))
+   instance-node))
 
 (defmethod emit
-  :host-call
-  [return plug host-call-node context]
-  (emit-host-call return plug host-call-node context))
+  :instance-call
+  [return plug instance-call-node]
+  (emit-instance-call return plug instance-call-node))
 
 
-;;;; *** HOST-FIELD
+;;;; *** INSTANCE-FIELD
 
-(defn emit-host-field
+(defn emit-instance-field
   [return
    plug
-   {target-node :target
+   {instance-node :instance
     field-symbol :field
-    :as host-field-node}
-   context]
+    :as instance-field-node}]
   (emit-value
    return
-   (fn [return target-form context]
-     (let [field-symbol (symbol (str "." (name field-symbol)))]
+   (fn [return target-form]
+     (let [field-symbol (symbol (str ".-" (name field-symbol)))]
        (plug
         return
         (with-node-meta
           `(~field-symbol ~target-form)
-          host-field-node)
-        context)))
-   target-node
-   context))
+          instance-field-node))))
+   instance-node))
 
 (defmethod emit
-  :host-field
-  [return plug host-field-node context]
-  (emit-host-field return plug host-field-node context))
+  :instance-field
+  [return plug instance-field-node]
+  (emit-instance-field return plug instance-field-node))
 
 
 ;;;; *** INVOKE
@@ -541,70 +519,51 @@
    plug
    {function-node :fn
     argument-nodes :args
-    :as invoke-node}
-   context]
+    :as invoke-node}]
   (emit-value
    return
-   (fn [return function-form context]
+   (fn [return function-form]
      (emit-values
       return
-      (fn [return argument-forms context]
-        (case (read-control-type function-node)
+      (fn [return argument-forms]
+        (case (read-function-type function-node)
           :direct
           (plug
            return
            (with-node-meta
              (list* function-form argument-forms)
-             invoke-node)
-           context)
+             invoke-node))
           :shift
           (hole->continuation-form
            (fn [continuation-form]
              (return
               (with-node-meta
                 (list*
-                 `call-shift
+                 `invoke-shift
                  function-form
                  continuation-form
                  argument-forms)
                 invoke-node)))
            plug)
-          :unknown
+          #_:default
           (hole->continuation-form
            (fn [continuation-form]
-             (let [result-symbol (gensym "r__")]
-               (plug
-                (fn [body-form]
-                  (return
-                   `(if (instance? clontrol.function.shifter.Shifter ~function-form)
-                      ~(with-node-meta
-                         (list*
-                          `call-shift
-                          function-form
-                          continuation-form
-                          argument-forms)
-                         invoke-node)
-                      ~(prepend-binding
-                        body-form
-                        'let*
-                        result-symbol
-                        (with-node-meta
-                          (list*
-                           function-form
-                           argument-forms)
-                          invoke-node)))))
-                result-symbol
-                context)))
+             (return
+              (with-node-meta
+                (list*
+                 `invoke-unknown
+                 function-form
+                 continuation-form
+                 argument-forms)
+                invoke-node)))
            plug)))
-      argument-nodes
-      context))
-   function-node
-   context))
+      argument-nodes))
+   function-node))
 
 (defmethod emit
   :invoke
-  [return plug invoke-node context]
-  (emit-invoke return plug invoke-node context))
+  [return plug invoke-node]
+  (emit-invoke return plug invoke-node))
 
 
 ;;;; *** LET
@@ -613,33 +572,30 @@
   [return
    plug
    {name-symbol :form
-    value-node :init}
-   context]
-  (emit-intermediate
-   return
-   (fn [return value-form context]
-     (plug
-      (fn [body-form]
+    value-node :init}]
+  (plug
+   (fn [body-form]
+     (emit-intermediate
+      return
+      ^{:function-form `(fn* ([~name-symbol] ~body-form))}
+      (fn [return value-form]
         (return (prepend-binding body-form 'let* name-symbol value-form)))
-      name-symbol
-      context))
-   value-node
-   context))
+      value-node))
+   name-symbol))
 
 (defn emit-let*-bindings
-  [return plug let*-binding-nodes context]
-  (chain emit-let*-binding return plug let*-binding-nodes context))
+  [return plug let*-binding-nodes]
+  (chain emit-let*-binding return plug let*-binding-nodes))
 
 (defn emit-let*
   [return
    plug
    {binding-nodes :bindings
     body-node :body
-    :as let*-node}
-   context]
+    :as let*-node}]
   (emit-let*-bindings
    return
-   (fn [return _ context]
+   (fn [return _]
      (emit-tail
       (fn [body-form]
         (return
@@ -647,15 +603,13 @@
            `(construct-bindings let* () ~body-form)
            let*-node)))
       plug
-      body-node
-      context))
-   binding-nodes
-   context))
+      body-node))
+   binding-nodes))
 
 (defmethod emit
   :let
-  [return plug let*-node context]
-  (emit-let* return plug let*-node context))
+  [return plug let*-node]
+  (emit-let* return plug let*-node))
 
 
 ;;;; *** LETFN
@@ -664,11 +618,10 @@
   [return
    plug
    {name-symbol :form
-    function-node :init}
-   context]
+    function-node :init}]
   (*emit-direct*
    return
-   (fn [return value-form context]
+   (fn [return value-form]
      (plug
       (fn [body-form]
         (return
@@ -677,34 +630,30 @@
           'letfn*
           name-symbol
           value-form)))
-      name-symbol
-      context))
-   function-node
-   context))
+      name-symbol))
+   function-node))
 
 (defn emit-letfn*-bindings
-  [return plug letfn*-binding-nodes context]
-  (chain emit-letfn*-binding return plug letfn*-binding-nodes context))
+  [return plug letfn*-binding-nodes]
+  (chain emit-letfn*-binding return plug letfn*-binding-nodes))
 
 (defn emit-letfn*
   [return
    plug
    {binding-nodes :bindings
     body-node :body
-    :as letfn*-node}
-   context]
+    :as letfn*-node}]
   (emit-letfn*-bindings
    (fn [letfn*-form]
      (return (with-node-meta letfn*-form letfn*-node)))
-   (fn [return _ context]
-     (emit-tail return plug body-node context))
-   binding-nodes
-   context))
+   (fn [return _]
+     (emit-tail return plug body-node))
+   binding-nodes))
 
 (defmethod emit
   :letfn
-  [return plug letfn*-node context]
-  (emit-letfn* return plug letfn*-node context))
+  [return plug letfn*-node]
+  (emit-letfn* return plug letfn*-node))
 
 
 ;;;; *** LOOP
@@ -715,36 +664,36 @@
    {binding-nodes :bindings
     loop-symbol :loop-id
     body-node :body
-    :as loop*-node}
-   context]
+    :as loop*-node}]
   (emit-let*-bindings
    return
-   (fn [return binding-symbols context]
+   (fn [return binding-symbols]
      (let [continuation-symbol (gensym "k__")]
-       (emit-tail
-        (fn [body-form]
+       (continuation-form->hole
+        (fn [plug']
           (hole->continuation-form
            (fn [continuation-form]
-             (return
-              (with-node-meta
-                (list*
-                 `(fn* ~loop-symbol
-                       ([~continuation-symbol ~@binding-symbols]
-                        ~body-form))
-                 continuation-form
-                 binding-symbols)
-                loop*-node)))
+             (emit-tail
+              (fn [body-form]
+                (return
+                 (with-node-meta
+                   (list*
+                    `(fn* ~loop-symbol
+                          ([~continuation-symbol ~@binding-symbols]
+                           ~body-form))
+                    continuation-form
+                    binding-symbols)
+                   loop*-node)))
+              plug'
+              body-node))
            plug))
-        (continuation-form->hole continuation-symbol)
-        body-node
-        (dissoc context :in-continuation?))))
-   binding-nodes
-   context))
+        continuation-symbol)))
+   binding-nodes))
 
 (defmethod emit
   :loop
-  [return plug loop*-node context]
-  (emit-loop* return plug loop*-node context))
+  [return plug loop*-node]
+  (emit-loop* return plug loop*-node))
 
 
 ;;;; *** MAP
@@ -753,21 +702,19 @@
   [return
    plug
    {value-nodes :vals
-    key-nodes :keys}
-   context]
+    key-nodes :keys}]
   (emit-values
    return
-   (fn [return key-value-forms context]
+   (fn [return key-value-forms]
      (let [map-entries (map vec (partition 2 key-value-forms))
            map-form (into {} map-entries)]
-       (plug return map-form context)))
-   (interleave key-nodes value-nodes)
-   context))
+       (plug return map-form)))
+   (interleave key-nodes value-nodes)))
 
 (defmethod emit
   :map
-  [return plug set-node context]
-  (emit-map return plug set-node context))
+  [return plug set-node]
+  (emit-map return plug set-node))
 
 
 ;;;; *** MONITOR-ENTER
@@ -776,24 +723,21 @@
   [return
    plug
    {target-node :target
-    :as monitor-enter-node}
-   context]
+    :as monitor-enter-node}]
   (emit-value
    return
-   (fn [return monitor-target-form context]
+   (fn [return monitor-target-form]
      (plug
       return
       (with-node-meta
         `(monitor-enter ~monitor-target-form)
-        monitor-enter-node)
-      context))
-   target-node
-   context))
+        monitor-enter-node)))
+   target-node))
 
 (defmethod emit
   :monitor-enter
-  [return plug monitor-enter-node context]
-  (emit-monitor-enter return plug monitor-enter-node context))
+  [return plug monitor-enter-node]
+  (emit-monitor-enter return plug monitor-enter-node))
 
 
 ;;;; *** MONITOR-EXIT
@@ -802,24 +746,21 @@
   [return
    plug
    {target-node :target
-    :as monitor-exit-node}
-   context]
+    :as monitor-exit-node}]
   (emit-value
    return
-   (fn [return monitor-target-form context]
+   (fn [return monitor-target-form]
      (plug
       return
       (with-node-meta
         `(monitor-exit ~monitor-target-form)
-        monitor-exit-node)
-      context))
-   target-node
-   context))
+        monitor-exit-node)))
+   target-node))
 
 (defmethod emit
   :monitor-exit
-  [return plug monitor-exit-node context]
-  (emit-monitor-exit return plug monitor-exit-node context))
+  [return plug monitor-exit-node]
+  (emit-monitor-exit return plug monitor-exit-node))
 
 
 ;;;; *** NEW
@@ -829,29 +770,25 @@
    plug
    {class-node :class
     argument-nodes :args
-    :as new-node}
-   context]
+    :as new-node}]
   (emit-values
    return
-   (fn [return argument-forms context]
+   (fn [return argument-forms]
      (*emit-direct*
       return
-      (fn [return class-symbol context]
+      (fn [return class-symbol]
         (plug
          return
          (with-node-meta
            (list* `new class-symbol argument-forms)
-           new-node)
-         context))
-      class-node
-      context))
-   argument-nodes
-   context))
+           new-node)))
+      class-node))
+   argument-nodes))
 
 (defmethod emit
   :new
-  [return plug new-node context]
-  (emit-new return plug new-node context))
+  [return plug new-node]
+  (emit-new return plug new-node))
 
 
 ;;;; *** RECUR
@@ -861,32 +798,23 @@
    plug
    {argument-nodes :exprs
     loop-symbol :loop-id
-    :as recur-node}
-   context]
+    :as recur-node}]
   (emit-values
    return
-   (fn [return
-        argument-forms
-        {in-continuation? :in-continuation?}]
+   (fn [return argument-forms]
      (hole->continuation-form
-      (fn [continuation-form]
-        (if in-continuation?
-          (return
-           (with-node-meta
-             (list* loop-symbol continuation-form argument-forms)
-             recur-node))
-          (return
-           (with-node-meta
-             (list* 'recur continuation-form argument-forms)
-             recur-node))))
+      (fn [function-form]
+        (return
+         (with-node-meta
+           (list* loop-symbol function-form argument-forms)
+           recur-node)))
       plug))
-   argument-nodes
-   context))
+   argument-nodes))
 
 (defmethod emit
   :recur
-  [return plug recur-node context]
-  (emit-recur return plug recur-node context))
+  [return plug recur-node]
+  (emit-recur return plug recur-node))
 
 
 ;;;; *** SET
@@ -895,30 +823,27 @@
   [return
    plug
    {item-nodes :items
-    :as set-node}
-   context]
+    :as set-node}]
   (emit-values
    return
-   (fn [return item-forms context]
+   (fn [return item-forms]
      (plug
       return
       (with-node-meta
         (set item-forms)
-        set-node)
-      context))
-   item-nodes
-   context))
+        set-node)))
+   item-nodes))
 
 (defmethod emit
   :set
-  [return plug set-node context]
-  (emit-set return plug set-node context))
+  [return plug set-node]
+  (emit-set return plug set-node))
 
 
 ;;;; *** SET!
 
 (defmulti emit-assignee
-  (fn [_ _ node _]
+  (fn [_ _ node]
     (:op node)))
 
 (defn throw-unsupported-assignee
@@ -926,8 +851,7 @@
    _
    {operation :op
     form :form
-    local-environment :env}
-   _]
+    local-environment :env}]
   (throw
    (ex-info
     (str "Unable to emit node assignees of type " operation ".")
@@ -944,52 +868,48 @@
 
 (defmethod emit-assignee
   :default
-  [return plug node context]
-  (*emit-assignee-default* return plug node context))
+  [return plug node]
+  (*emit-assignee-default* return plug node))
 
 (defmethod emit-assignee
   :var
-  [return plug node context]
-  (*emit-direct* return plug node context))
+  [return plug node]
+  (*emit-direct* return plug node))
 
 (defmethod emit-assignee
   :host-interop
-  [return plug node context]
-  (emit-host-interop return plug node context))
+  [return plug node]
+  (emit-host-interop return plug node))
 
 (defmethod emit-assignee
-  :host-field
-  [return plug node context]
-  (emit-host-field return plug node context))
+  :instance-field
+  [return plug node]
+  (emit-instance-field return plug node))
 
 (defn emit-set!
   [return
    plug
    {target-node :target
     assigned-node :val
-    :as set!-node}
-   context]
+    :as set!-node}]
   (emit-assignee
    return
-   (fn [return target-form context]
+   (fn [return target-form]
      (emit-value
       return
-      (fn [return assigned-form context]
+      (fn [return assigned-form]
         (plug
          return
          (with-node-meta
            `(set! ~target-form ~assigned-form)
-           set!-node)
-         context))
-      assigned-node
-      context))
-   target-node
-   context))
+           set!-node)))
+      assigned-node))
+   target-node))
 
 (defmethod emit
   :set!
-  [return plug assignment-node context]
-  (emit-set! return plug assignment-node context))
+  [return plug assignment-node]
+  (emit-set! return plug assignment-node))
 
 
 ;;;; *** SHIFT
@@ -999,30 +919,52 @@
    plug
    {handler-node :handler
     argument-nodes :args
-    :as shift*-node}
-   context]
+    :as shift*-node}]
   (hole->continuation-form
    (fn [continuation-form]
      (emit-value
       return
-      (fn [return handler-form context]
+      (fn [return handler-form]
         (emit-values
          return
-         (fn [return argument-forms _]
+         (fn [return argument-forms]
            (return
             (with-node-meta
               (list* handler-form continuation-form argument-forms)
               shift*-node)))
-         argument-nodes
-         context))
-      handler-node
-      context))
+         argument-nodes))
+      handler-node))
    plug))
 
 (defmethod emit
   :shift
-  [return plug shift-node context]
-  (emit-shift* return plug shift-node context))
+  [return plug shift-node]
+  (emit-shift* return plug shift-node))
+
+
+;;;; *** STATIC-CALL
+
+(defn emit-static-call
+  [return
+   plug
+   {class-symbol :class
+    method-symbol :method
+    argument-nodes :args
+    :as static-call-node}]
+  (emit-values
+   return
+   (fn [return argument-forms]
+     (plug
+      return
+      (with-node-meta
+        `(. ~class-symbol ~(cons method-symbol argument-forms))
+        static-call-node)))
+   argument-nodes))
+
+(defmethod emit
+  :static-call
+  [return plug static-call-node]
+  (emit-static-call return plug static-call-node))
 
 
 ;;;; *** THROW
@@ -1031,22 +973,20 @@
   [return
    _ ; Throwing does not yield control to the current continuation.
    {exception-node :exception
-    :as throw-node}
-   context]
+    :as throw-node}]
   (emit-value
    return
-   (fn [return exception-form _]
+   (fn [return exception-form]
      (return
       (with-node-meta
         `(throw ~exception-form)
         throw-node)))
-   exception-node
-   context))
+   exception-node))
 
 (defmethod emit
   :throw
-  [return plug throw-node context]
-  (emit-throw return plug throw-node context))
+  [return plug throw-node]
+  (emit-throw return plug throw-node))
 
 
 ;;;; *** TRY-CATCH
@@ -1057,14 +997,13 @@
     {body-node :body
      exception-class-node :class
      binding-node :local
-     :as catch-node}
-    context]
+     :as catch-node}]
    (*emit-direct*
     return
-    (fn [return exception-class-symbol context]
+    (fn [return exception-class-symbol]
       (*emit-direct*
        return
-       (fn [return binding-symbol context]
+       (fn [return binding-symbol]
          (emit-tail
           (fn [catch-body-form]
             (return
@@ -1074,82 +1013,73 @@
                   ~catch-body-form)
                catch-node)))
           plug
-          body-node
-          context))
-       binding-node
-       context))
-    exception-class-node
-    context)))
+          body-node))
+       binding-node))
+    exception-class-node)))
 
 (defn emit-catches
-  [return plug catch-nodes context]
-  (collect emit-catch return plug catch-nodes context))
+  [return plug catch-nodes]
+  (collect emit-catch return plug catch-nodes))
 
 (defn emit-try
   [return
    plug
    {body-node :body
     catch-nodes :catches
-    :as try-node}
-   context]
+    :as try-node}]
   (emit-tail
    (fn [body-form]
      (emit-catches
       (fn [catch-forms]
-        (return
+        (plug
+         return
          (with-node-meta
-           (list* 'try body-form catch-forms)
+           (list* `try body-form catch-forms)
            try-node)))
       plug
-      catch-nodes
-      context))
+      catch-nodes))
    plug
-   body-node
-   context))
+   body-node)
+  plug)
 
 (defn emit-try-finally
   [return
    plug
    {finally-node :finally
-    :as try-node}
-   context]
+    :as try-node}]
   (if finally-node
-    (reify-intermediate-hole
-     (fn [plug-try plug-tail]
-       (emit-try
-        (fn [try-form]
-          (let [thrown-symbol (gensym "t__")]
-            (emit-statement
-             (fn [finally-form]
-               (plug-try
-                return
-                `(try
-                   ~try-form
-                   (catch Throwable ~thrown-symbol
-                     ~finally-form))
-                context))
-             (fn [return _ _]
-               (return `(throw ~thrown-symbol)))
-             finally-node
-             context)))
-        plug-tail
-        try-node
-        context))
-     (fn [return result-form context]
+    ;; General assumption:
+    ;; (try ..._1 (finally ..._2))
+    ;; Is equivalent to:
+    ;; (try (try ..._1 ..._2) (catch Throwable t ..._2 (throw t))
+    (emit-try
+     (fn [try-form]
+       (let [throwable-symbol (gensym "t__")]
+         (emit-statement
+          (fn [finally-form]
+            (return
+             (with-node-meta
+               `(try
+                  ~try-form
+                  (catch Throwable ~throwable-symbol
+                    ~finally-form))
+               finally-node)))
+          (fn [return _]
+            (return `(throw ~throwable-symbol)))
+          finally-node)))
+     (fn [return try-form]
        (emit-statement
         return
-        (fn [return _ context]
-          (plug return result-form context))
-        finally-node
-        context))
-     try-node
-     context)
-    (emit-try return plug try-node context)))
+        (fn [return _]
+          (plug return try-form))
+        finally-node))
+     try-node)
+    (emit-try return plug try-node)))
 
 (defmethod emit
   :try
-  [return plug try-node context]
-  (emit-try-finally return plug try-node context))
+  [return plug try-node]
+  (emit-try-finally return plug try-node))
 
 
 ;;;; *** VECTOR
@@ -1158,19 +1088,17 @@
   [return
    plug
    {item-nodes :items
-    :as vector-node}
-   context]
+    :as vector-node}]
   (emit-values
    return
-   (fn [return item-forms context]
-     (plug return (with-node-meta item-forms vector-node) context))
-   item-nodes
-   context))
+   (fn [return item-forms]
+     (plug return (with-node-meta item-forms vector-node)))
+   item-nodes))
 
 (defmethod emit
   :vector
-  [return plug vector-node context]
-  (emit-vector return plug vector-node context))
+  [return plug vector-node]
+  (emit-vector return plug vector-node))
 
 
 ;;;; *** WITH-META
@@ -1179,21 +1107,18 @@
   [return
    plug
    {argument-node :expr
-    meta-node :meta}
-   context]
+    meta-node :meta}]
   (emit-map
    return
-   (fn [return meta-map context]
+   (fn [return meta-map]
      (emit
       return
-      (fn [return argument-form context]
-        (plug return (with-meta argument-form meta-map) context))
-      argument-node
-      context))
-   meta-node
-   context))
+      (fn [return argument-form]
+        (plug return (with-meta argument-form meta-map)))
+      argument-node))
+   meta-node))
 
 (defmethod emit
   :with-meta
-  [return plug with-meta*-node context]
-  (emit-with-meta* return plug with-meta*-node context))
+  [return plug with-meta*-node]
+  (emit-with-meta* return plug with-meta*-node))
