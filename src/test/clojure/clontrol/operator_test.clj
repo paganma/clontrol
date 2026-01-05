@@ -536,11 +536,6 @@
   (testing "Shift in TRY-CATCH"
     (is (reset
          (try
-           (shift (fn [_] true))
-           (catch Exception _
-             false))))
-    (is (reset
-         (try
            (throw (ex-info "" {}))
            false
            (catch Exception _
@@ -556,7 +551,26 @@
            (throw (ex-info "" {:msg (shift (fn [_] true))}))
            false
            (catch Exception _
-             false)))))
+             false))))
+    (is (thrown? Exception
+                 (reset
+                   (try
+                     (shift (fn [k] (k nil)))
+                     (catch Exception _
+                       false))
+                   (throw (ex-info "test" {})))))
+
+    (is (reset
+          (let [a (atom true)]
+            (try
+              (try
+                (shift (fn [k] (k nil)))
+                (catch clojure.lang.ExceptionInfo _
+                  (reset! a false)
+                  false))
+              (throw (ex-info "test" {}))
+              (catch clojure.lang.ExceptionInfo _))
+            @a))))
 
   (testing "Shift in WITH-META"
     (is (= (meta (reset ^{:a (shift (fn [k] (k true)))} [1 2 3]))
@@ -602,11 +616,11 @@
 
         (is (= @e 2)))))
 
-  #_(testing "Shift with Synchronization Primitives"
-      (reset
-       (let [m (atom nil)]
-         (locking (shift (fn [k] (k m)))
-           (swap! m not)))))
+  (testing "Shift with Synchronization Primitives"
+    (reset
+     (let [m (atom nil)]
+       (locking (shift (fn [k] (k m)))
+         (is (swap! m not))))))
 
   (testing "Local Handler Declaration"
     (is (= (let [f (fn-shift [a] (shift (fn [k] (k [(+ a 1) (+ a 2)]))))]
