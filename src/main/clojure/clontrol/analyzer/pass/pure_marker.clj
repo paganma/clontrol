@@ -11,9 +11,9 @@
   subtree."
   #{:const
     :deftype
+    :maybe-class
     :local
-    :fn
-    :reify
+    :value
     :static-field})
 
 (def ^:dynamic *compound-pure-operations*
@@ -34,6 +34,7 @@
     :quote
     :recur
     :set
+    :effect
     :shift
     :the-var
     :try

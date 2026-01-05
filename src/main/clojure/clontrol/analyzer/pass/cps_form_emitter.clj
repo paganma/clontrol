@@ -27,8 +27,6 @@
     :refer [mark-recur-dominator]]
    [clontrol.analyzer.pass.shadowings-tagger
     :refer [tag-shadowings]]
-   [clontrol.analyzer.pass.validator
-    :refer [validate]]
    [clontrol.function.shifter
     :refer [invoke-shift]]))
 
@@ -106,8 +104,7 @@
     :depends #{#'mark-direct
                #'mark-pure
                #'mark-recur-dominator
-               #'tag-shadowings
-               #'validate}}}
+               #'tag-shadowings}}}
   ([node]
    (let [passes-options
          (-> node :env :passes-opts)
@@ -452,15 +449,15 @@
   (emit-if return plug if-node))
 
 
-;;;; *** INSTANCE-CALL
+;;;; *** HOST-CALL
 
-(defn emit-instance-call
+(defn emit-host-call
   [return
    plug
-   {instance-node :instance
+   {target-node :target
     method-symbol :method
     argument-nodes :args
-    :as instance-call-node}]
+    :as host-call-node}]
   (emit-value
    return
    (fn [return target-form]
@@ -470,40 +467,40 @@
         (plug
          return
          (with-node-meta
-           `(. ~target-form ~(cons method-symbol argument-forms))
-           instance-call-node)))
+           (list* '. target-form method-symbol argument-forms)
+           host-call-node)))
       argument-nodes))
-   instance-node))
+   target-node))
 
 (defmethod emit
-  :instance-call
-  [return plug instance-call-node]
-  (emit-instance-call return plug instance-call-node))
+  :host-call
+  [return plug host-call-node]
+  (emit-host-call return plug host-call-node))
 
 
-;;;; *** INSTANCE-FIELD
+;;;; *** HOST-FIELD
 
-(defn emit-instance-field
+(defn emit-host-field
   [return
    plug
-   {instance-node :instance
+   {target-node :target
     field-symbol :field
-    :as instance-field-node}]
+    :as host-field-node}]
   (emit-value
    return
    (fn [return target-form]
-     (let [field-symbol (symbol (str ".-" (name field-symbol)))]
+     (let [field-symbol (symbol (str "." (name field-symbol)))]
        (plug
         return
         (with-node-meta
           `(~field-symbol ~target-form)
-          instance-field-node))))
-   instance-node))
+          host-field-node))))
+   target-node))
 
 (defmethod emit
-  :instance-field
-  [return plug instance-field-node]
-  (emit-instance-field return plug instance-field-node))
+  :host-field
+  [return plug host-field-node]
+  (emit-host-field return plug host-field-node))
 
 
 ;;;; *** INVOKE
@@ -880,9 +877,9 @@
   (emit-host-interop return plug node))
 
 (defmethod emit-assignee
-  :instance-field
+  :host-field
   [return plug node]
-  (emit-instance-field return plug node))
+  (emit-host-field return plug node))
 
 (defn emit-set!
   [return
