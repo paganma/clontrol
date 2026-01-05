@@ -5,7 +5,7 @@
 
 (def lib 'paganma/clontrol)
 
-(def version (format "0.1.%s" (build/git-count-revs nil)))
+(def version "SNAPSHOT")
 
 (def class-dir "target/classes")
 
