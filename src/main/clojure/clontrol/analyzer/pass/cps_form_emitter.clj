@@ -7,7 +7,6 @@
     :refer [-source-info]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [hole->continuation-form
-            reify-hole
             continuation-form->hole]]
    [clontrol.analyzer.pass.validator
     :refer [validate]]
@@ -16,18 +15,17 @@
    [clontrol.analyzer.pass.shadowings-tagger
     :refer [tag-shadowings]]
    [clontrol.analyzer.pass.form-builder
-    :refer [build-recur-tail
-            construct-bindings
+    :refer [construct-bindings
             prepend-binding
             construct-statements
-            prepend-statement
-            ->RecurTailBuilder]]
+            prepend-statement]]
    [clontrol.analyzer.pass.function-type-reader
     :refer [read-function-type]]
    [clontrol.analyzer.pass.pure-marker
     :refer [mark-pure]]
    [clontrol.function.shifter
-    :refer [invoke-shift]]))
+    :refer [invoke-shift
+            invoke-unknown]]))
 
 
 ;;;; * Form Emitters
@@ -90,13 +88,6 @@
     (*emit-direct* return plug node)    
     (emit return plug node)))
 
-(defn emit-recur-tail
-  [return plug node]
-  (return
-   (build-recur-tail
-    (trampoline emit-tail identity plug node)
-    :build-direct)))
-
 (defn emit-cps-form
   "Emits the CPS form of `node` yielding its result to a continuation form. 
   
@@ -120,9 +111,7 @@
          (:cps-form-emitter/continuation-form passes-options `identity)]
      (continuation-form->hole
       (fn [plug]
-        (if (= (-> node :env :context) :ctx/return)
-          (emit-recur-tail return plug node)
-          (emit-tail return plug node)))
+        (emit-tail return plug node))
       continuation-form))))
 
 (def run-cps-form-emitter
@@ -285,29 +274,28 @@
   (emit-value
    return
    (fn [return test-form]
-     (reify-hole
-      (fn [plug-case plug-branch]
-        (emit-case-map
-         (fn [case-map]
-           (emit-value
-            (fn [default-form]
-              (return
-               (with-node-meta
-                 `(case*
-                   ~test-form
-                   ~shift ~mask
-                   ~default-form
-                   ~case-map
-                   ~switch-type
-                   ~test-type
-                   ~skip-set)
-                 case-node)))
-            plug
-            default-node))
+     (emit-case-map
+      (fn [case-map]
+        (emit-value
+         (fn [default-form]
+           (plug
+            return
+            (with-node-meta
+              `(case*
+                ~test-form
+                ~shift ~mask
+                ~default-form
+                ~case-map
+                ~switch-type
+                ~test-type
+                ~skip-set)
+              case-node)))
          plug
-         match-nodes
-         then-nodes))
-      plug))
+         default-node))
+      plug
+      match-nodes
+      then-nodes)
+     plug)
    test-node))
 
 (defmethod emit
@@ -371,14 +359,14 @@
   `nil` in a syntactic context in which the form of `statement-node` has been
   evaluated."
   [return plug statement-node]
-  (emit-intermediate
-   return
-   (fn [return statement-form]
-     (plug
-      (fn [body-form]
+  (plug
+   (fn [body-form]
+     (emit-intermediate
+      return
+      (fn [return statement-form]
         (return (prepend-statement body-form statement-form)))
-      nil))
-   statement-node))
+      statement-node))
+   nil))
 
 (defn emit-statements
   "Chains [[emit-statement]] over multiple `statement-nodes`. Plugs `nil` in a
@@ -452,14 +440,16 @@
       (fn [then-form]
         (emit-tail
          (fn [else-form]
-           (return
+           (plug
+            return
             (with-node-meta
               `(if ~test-form ~then-form ~else-form)
               if-node)))
          plug
          else-node))
       plug
-      then-node))
+      then-node)
+     plug)
    test-node))
 
 (defmethod emit
@@ -558,27 +548,14 @@
           #_:default
           (hole->continuation-form
            (fn [continuation-form]
-             (let [result-symbol (gensym "r__")
-                   body-form
-                   (build-recur-tail
-                    (trampoline plug identity result-symbol)
-                    :build-direct)]
-               (return
-                `(if (instance? clontrol.function.shifter.Shifter ~function-form)
-                   ~(with-node-meta
-                      (list*
-                       `invoke-shift
-                       function-form
-                       continuation-form
-                       argument-forms)
-                      invoke-node)
-                   (let [~result-symbol
-                         ~(with-node-meta
-                            (list*
-                             function-form
-                             argument-forms)
-                            invoke-node)]
-                     ~body-form)))))
+             (return
+              (with-node-meta
+                (list*
+                 `invoke-unknown
+                 function-form
+                 continuation-form
+                 argument-forms)
+                invoke-node)))
            plug)))
       argument-nodes))
    function-node))
@@ -596,14 +573,15 @@
    plug
    {name-symbol :form
     value-node :init}]
-  (emit-intermediate
-   return
-   (fn [return value-form]
-     (plug
-      (fn [body-form]
+  (plug
+   (fn [body-form]
+     (emit-intermediate
+      return
+      ^{:function-form `(fn* ([~name-symbol] ~body-form))}
+      (fn [return value-form]
         (return (prepend-binding body-form 'let* name-symbol value-form)))
-      name-symbol))
-   value-node))
+      value-node))
+   name-symbol))
 
 (defn emit-let*-bindings
   [return plug let*-binding-nodes]
@@ -695,7 +673,7 @@
         (fn [plug']
           (hole->continuation-form
            (fn [continuation-form]
-             (emit-recur-tail 
+             (emit-tail
               (fn [body-form]
                 (return
                  (with-node-meta
@@ -826,15 +804,10 @@
    (fn [return argument-forms]
      (hole->continuation-form
       (fn [function-form]
-        (->RecurTailBuilder
-         #(return
-           (with-node-meta
-             (list* 'recur function-form argument-forms)
-             recur-node))
-         #(return
-           (with-node-meta
-             (list* loop-symbol function-form argument-forms)
-             recur-node))))
+        (return
+         (with-node-meta
+           (list* loop-symbol function-form argument-forms)
+           recur-node)))
       plug))
    argument-nodes))
 
@@ -1054,22 +1027,20 @@
    {body-node :body
     catch-nodes :catches
     :as try-node}]
-  (reify-hole
-   (fn [plug-try plug-tail]
-     (emit-tail
-      (fn [body-form]
-        (emit-catches
-         (fn [catch-forms]
-           (plug-try
-            return
-            (with-node-meta
-              (list* `try body-form catch-forms)
-              try-node)))
-         plug-tail
-         catch-nodes))
-      plug-tail
-      body-node))
-   plug))
+  (emit-tail
+   (fn [body-form]
+     (emit-catches
+      (fn [catch-forms]
+        (plug
+         return
+         (with-node-meta
+           (list* `try body-form catch-forms)
+           try-node)))
+      plug
+      catch-nodes))
+   plug
+   body-node)
+  plug)
 
 (defn emit-try-finally
   [return
