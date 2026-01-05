@@ -9,8 +9,6 @@
     :refer [read-control-type]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [continuation-form->hole
-            isolate-hole
-            reify-hole
             hole->continuation-form]]
    [clontrol.analyzer.pass.direct-marker
     :refer [mark-direct]]
@@ -159,13 +157,7 @@
 (def ^:dynamic *branch-operations*
   #{:if :case :try})
 
-(defn emit-branch
-  [return plug branch-node]
-  ...)
-
-(defn emit-shadowing-closure
-  [return plug branch-node]
-  ...)
+(deftype Result [value])
 
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
@@ -178,15 +170,56 @@
    context]
   (if (or (seq shadowed-symbols)
           (*branch-operations* operation))
-    (reify-hole
-     (fn [plug-tail plug-intermediate]
-       (emit-tail
-        (fn [intermediate-form]
-          (plug-tail return intermediate-form context))
-        plug-intermediate
-        node
-        context))
-     plug)
+    (if (and (:recur-dominator? node) (not (:in-loop? context)))
+      (emit-tail
+       (fn [result-form]
+         (let [result-symbol (gensym "c__")]
+           (plug
+            (fn [tail-form]
+              (return
+               (prepend-binding
+                `(if (instance? Result ~result-symbol)
+                   ~(prepend-binding
+                     tail-form
+                     'let*
+                     result-symbol
+                     `(.value ~result-symbol))
+                   ~result-symbol)
+                'let*
+                result-symbol
+                result-form)))
+            result-symbol
+            context)))
+       (with-meta
+         (fn [return intermediate-form context]
+           (if (:in-continuation? context)
+             (plug return intermediate-form context)
+             (plug
+              (fn [_]
+                (return `(Result. ~intermediate-form)))
+              intermediate-form
+              context)))
+         (meta plug))
+       node
+       (assoc context :in-loop? true))
+      (hole->continuation-form
+       (fn [continuation-form]
+         (let [phi-symbol (gensym "p__")]
+           (emit-tail
+            (fn [tail-form]
+              (return
+               (prepend-binding
+                tail-form
+                'let*
+                phi-symbol
+                continuation-form)))
+            ^{:function-form phi-symbol}
+            (fn [return intermediate-form _]
+              (return `(~phi-symbol ~intermediate-form)))
+            node
+            context)))
+       plug
+       context))
     (emit-tail return plug node context)))
 
 (defn emit-value
@@ -568,7 +601,8 @@
                  continuation-form
                  argument-forms)
                 invoke-node)))
-           plug)
+           plug
+           context)
           :unknown
           (hole->continuation-form
            (fn [continuation-form]
@@ -595,7 +629,8 @@
                           invoke-node)))))
                 result-symbol
                 context)))
-           plug)))
+           plug
+           context)))
       argument-nodes
       context))
    function-node
@@ -734,10 +769,11 @@
                  continuation-form
                  binding-symbols)
                 loop*-node)))
-           plug))
+           plug
+           context))
         (continuation-form->hole continuation-symbol)
         body-node
-        (dissoc context :in-continuation?))))
+        (merge context {:in-continuation? false}))))
    binding-nodes
    context))
 
@@ -879,7 +915,8 @@
            (with-node-meta
              (list* 'recur continuation-form argument-forms)
              recur-node))))
-      plug))
+      plug
+      context))
    argument-nodes
    context))
 
@@ -1017,7 +1054,8 @@
          context))
       handler-node
       context))
-   plug))
+   plug
+   context))
 
 (defmethod emit
   :shift
@@ -1114,34 +1152,23 @@
     :as try-node}
    context]
   (if finally-node
-    (reify-hole
-     (fn [plug-try plug-tail]
-       (emit-try
-        (fn [try-form]
-          (let [thrown-symbol (gensym "t__")]
-            (emit-statement
-             (fn [finally-form]
-               (plug-try
-                return
-                `(try
-                   ~try-form
-                   (catch Throwable ~thrown-symbol
-                     ~finally-form))
-                context))
-             (fn [return _ _]
-               (return `(throw ~thrown-symbol)))
-             finally-node
-             context)))
-        plug-tail
-        try-node
-        context))
-     (fn [return result-form context]
-       (emit-statement
-        return
-        (fn [return _ context]
-          (plug return result-form context))
-        finally-node
-        context)))
+    (emit-try
+     (fn [try-form]
+       (let [thrown-symbol (gensym "t__")]
+         (emit-statement
+          (fn [finally-form]
+            (return
+             `(try
+                ~try-form
+                (catch Throwable ~thrown-symbol
+                  ~finally-form))))
+          (fn [return _ _]
+            (return `(throw ~thrown-symbol)))
+          finally-node
+          context)))
+     plug
+     try-node
+     context)
     (emit-try return plug try-node context)))
 
 (defmethod emit
