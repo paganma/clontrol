@@ -115,11 +115,9 @@
   ([return-body name-symbol arity-forms local-bindings]
    (let [continuation-symbol (gensym "k__")]
      `(fn*
-       ~@(if name-symbol [name-symbol] nil)
+       ~name-symbol
        ~@(for [[parameter-symbols & body-forms] arity-forms]
-           (let [loop-symbol
-                 (gensym (str name-symbol "__loop__"))
-                 body-form
+           (let [body-form
                  (list* 'do body-forms)
                  local-bindings
                  (assoc local-bindings name-symbol (make-local-binding name-symbol))
@@ -138,8 +136,7 @@
                     :direct-marker/direct-recur? false}
                    :locals local-bindings
                    :context :ctx/return
-                   :loop-id loop-symbol
-                   :loop-parameters parameter-symbols
+                   :loop-id name-symbol
                    :loop-locals (count parameter-symbols)})]
              `([~continuation-symbol ~@parameter-symbols]
                ~(return-body
@@ -166,11 +163,9 @@
   Employs the same parsing logic as [[clojure.core/fn]]
   (See https://clojure.org/reference/special_forms#fn for more informaton)."
   [& sigs]
-  (let [{name-symbol :name
-         signature-forms :signatures}
-        (parse-fn sigs)
-        local-bindings
-        (parse-local-bindings &env)]
+  (let [{name-symbol :name signature-forms :signatures} (parse-fn sigs)
+        local-bindings (parse-local-bindings &env)
+        name-symbol (or name-symbol (gensym "cps_fn__"))]
     (with-meta
       (emit-fn-cps name-symbol signature-forms local-bindings)
       (meta &form))))

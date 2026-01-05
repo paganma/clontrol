@@ -13,16 +13,16 @@
   subtree."
   #{:case-test
     :const
-    :maybe-class
     :deftype
-    :value
     :effect
     :import
     :keyword
     :local
+    :maybe-class
     :quote
     :static-field
     :the-var
+    :value
     :var})
 
 (def ^:dynamic *compound-direct-operations*
@@ -33,7 +33,6 @@
     :case-then
     :catch
     :def
-    :default
     :do
     :host-call
     :host-field
