@@ -107,9 +107,7 @@ functions.
 ## Status
 
 This project is still experimental. More testing needs to be done to ensure that
-the selective CPS transformation does not introduce unexpected
-behaviors. Moreover, a minor issue with the CPS transformation loops needs to be
-addressed (see the issue page for more information).
+the selective CPS transformation does not introduce unexpected behaviors.
 
 ## License
 
