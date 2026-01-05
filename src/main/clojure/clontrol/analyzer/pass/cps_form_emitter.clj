@@ -156,37 +156,19 @@
          (emit return plug-next node context)))
      (plug return forms context))))
 
-(def ^:dynamic *branch-operations*
-  #{:if :case :try})
-
-(defn ^:dynamic *splits-control?*
-  [{operation :op
-    shadowed-symbols :shadowings
-    :as node}]
-  (or (seq shadowed-symbols)
-      (*branch-operations* operation)
-      (and (= operation :invoke)
-           (= (read-control-type (:fn node)) :unknown))))
+(defn capture-node-hole
+  [return return-tail plug node context]
+  (if (not= (-> node :env :context) :ctx/return)
+    (if (and (:recur-dominator? node) (not (:in-continuation? context)))
+      (capture-recur-hole return return-tail plug context)
+      (capture-hole return return-tail plug context))
+    (return return-tail plug)))
 
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
   [return plug node context]
-  (if (*splits-control?* node) 
-    (if (:recur-dominator? node)
-      (capture-recur-hole
-       (fn [return plug]
-         (emit-tail return plug node context))
-       return
-       plug
-       context)
-      (capture-hole
-       (fn [return plug]
-         (emit-tail return plug node context))
-       return
-       plug
-       context))
-    (emit-tail return plug node context)))
+  (emit-tail return plug node (assoc context :in-intermediate? true)))
 
 (defn emit-value
   "Emits the `value-node`'s form yielding its result to `plug` in an intermediate
@@ -276,32 +258,38 @@
     skip-set :skip-check?
     :as case-node}
    context]
-  (emit-value
-   return
-   (fn [return test-form context]
-     (emit-case-map
-      (fn [case-map]
-        (emit-value
-         (fn [default-form]
-           (return
-            (with-node-meta
-              `(case*
-                ~test-form
-                ~shift ~mask
-                ~default-form
-                ~case-map
-                ~switch-type
-                ~test-type
-                ~skip-set)
-              case-node)))
+  (capture-node-hole
+   (fn [return plug]
+     (emit-value
+      return
+      (fn [return test-form context]
+        (emit-case-map
+         (fn [case-map]
+           (emit-tail
+            (fn [default-form]
+              (return
+               (with-node-meta
+                 `(case*
+                   ~test-form
+                   ~shift ~mask
+                   ~default-form
+                   ~case-map
+                   ~switch-type
+                   ~test-type
+                   ~skip-set)
+                 case-node)))
+            plug
+            default-node
+            context))
          plug
-         default-node
+         match-nodes
+         then-nodes
          context))
-      plug
-      match-nodes
-      then-nodes
+      test-node
       context))
-   test-node
+   return
+   plug
+   case-node
    context))
 
 (defmethod emit
@@ -451,24 +439,30 @@
     else-node :else
     :as if-node}
    context]
-  (emit-value
-   return
-   (fn [return test-form context]
-     (emit-tail
-      (fn [then-form]
+  (capture-node-hole
+   (fn [return plug]
+     (emit-value
+      return
+      (fn [return test-form context]
         (emit-tail
-         (fn [else-form]
-           (return
-            (with-node-meta
-              `(if ~test-form ~then-form ~else-form)
-              if-node)))
+         (fn [then-form]
+           (emit-tail
+            (fn [else-form]
+              (return
+               (with-node-meta
+                 `(if ~test-form ~then-form ~else-form)
+                 if-node)))
+            plug
+            else-node
+            context))
          plug
-         else-node
+         then-node
          context))
-      plug
-      then-node
+      test-node
       context))
-   test-node
+   return
+   plug
+   if-node
    context))
 
 (defmethod emit
@@ -575,27 +569,33 @@
            plug
            context)
           :unknown
-          (hole->continuation-form
-           (fn [continuation-form]
-             (plug
-              (fn [body-form]
-                (return
-                 `(if (instance? clontrol.function.shifter.Shifter ~function-form)
-                    ~(with-node-meta
-                       (list*
-                        `call-shift
-                        function-form
-                        continuation-form
-                        argument-forms)
-                       invoke-node)
-                    ~body-form)))
-              (with-node-meta
-                (list*
-                 function-form
-                 argument-forms)
-                invoke-node)
+          (capture-node-hole
+           (fn [return plug]
+             (hole->continuation-form
+              (fn [continuation-form]
+                (plug
+                 (fn [body-form]
+                   (return
+                    `(if (instance? clontrol.function.shifter.Shifter ~function-form)
+                       ~(with-node-meta
+                          (list*
+                           `call-shift
+                           function-form
+                           continuation-form
+                           argument-forms)
+                          invoke-node)
+                       ~body-form)))
+                 (with-node-meta
+                   (list*
+                    function-form
+                    argument-forms)
+                   invoke-node)
+                 context))
+              plug
               context))
+           return
            plug
+           invoke-node
            context)))
       argument-nodes
       context))
@@ -631,6 +631,12 @@
   [return plug let*-binding-nodes context]
   (chain emit-let*-binding return plug let*-binding-nodes context))
 
+(defn capture-closure-hole
+  [return return-tail plug node context]
+  (if (seq (:shadowings node))
+    (capture-node-hole return return-tail plug node context)
+    (return return-tail plug)))
+
 (defn emit-let*
   [return
    plug
@@ -638,19 +644,25 @@
     body-node :body
     :as let*-node}
    context]
-  (emit-let*-bindings
-   return
-   (fn [return _ context]
-     (emit-tail
-      (fn [body-form]
-        (return
-         (with-node-meta
-           `(construct-bindings let* () ~body-form)
-           let*-node)))
-      plug
-      body-node
+  (capture-closure-hole
+   (fn [return plug]
+     (emit-let*-bindings
+      return
+      (fn [return _ context]
+        (emit-tail
+         (fn [body-form]
+           (return
+            (with-node-meta
+              `(construct-bindings let* () ~body-form)
+              let*-node)))
+         plug
+         body-node
+         context))
+      binding-nodes
       context))
-   binding-nodes
+   return
+   plug
+   let*-node
    context))
 
 (defmethod emit
@@ -1117,25 +1129,31 @@
    {finally-node :finally
     :as try-node}
    context]
-  (if finally-node
-    (emit-try
-     (fn [try-form]
-       (let [thrown-symbol (gensym "t__")]
-         (emit-statement
-          (fn [finally-form]
-            (return
-             `(try
-                ~try-form
-                (catch Throwable ~thrown-symbol
-                  ~finally-form))))
-          (fn [return _ _]
-            (return `(throw ~thrown-symbol)))
-          finally-node
-          context)))
-     plug
-     try-node
-     context)
-    (emit-try return plug try-node context)))
+  (capture-node-hole
+   (fn [return plug]
+     (if finally-node
+       (emit-try
+        (fn [try-form]
+          (let [thrown-symbol (gensym "t__")]
+            (emit-statement
+             (fn [finally-form]
+               (return
+                `(try
+                   ~try-form
+                   (catch Throwable ~thrown-symbol
+                     ~finally-form))))
+             (fn [return _ _]
+               (return `(throw ~thrown-symbol)))
+             finally-node
+             context)))
+        plug
+        try-node
+        context)
+       (emit-try return plug try-node context)))
+   return
+   plug
+   try-node
+   context))
 
 (defmethod emit
   :try
