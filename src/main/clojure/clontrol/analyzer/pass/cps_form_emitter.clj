@@ -1024,9 +1024,7 @@
    {body-node :body
     catch-nodes :catches
     :as try-node}]
-  ;; We can reify the rest of the continuation, as `recur` cannot cross a
-  ;; `try-catch` block anyway.
-  (reify-hole
+  (reify-closure-hole
    (fn [plug-try plug-tail]
      (emit-tail
       (fn [body-form]
