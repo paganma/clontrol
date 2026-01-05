@@ -5,7 +5,8 @@
 
 (def plug-into-identity
   ^{:function-form `identity}
-  (fn [return form _] (return form)))
+  (fn [return form _]
+    (return form)))
 
 (defn continuation-form->hole
   [continuation-form]
@@ -58,38 +59,39 @@
          (return bind-outer bind-inner))))
    plug))
 
-(deftype ClosureResult
+(deftype Result
     [value])
 
-(defn reify-closure-hole
+(defn isolate-hole
   [return plug context]
-  (reify-hole
-   (fn [plug-outer plug-inner]
-     (let [closure-symbol (gensym "c__")]
-       (plug
-        (fn [body-form]
-          (return
-           (fn [return outer-form context]
-             (plug-outer
-              return
-              (prepend-binding
-               `(if (instance? ClosureResult ~closure-symbol)
-                  ~body-form
-                  ~closure-symbol)
-               'let*
-               closure-symbol
-               outer-form)
-              context))
-           (with-meta
-             (fn [return inner-form context]
-               (if (:in-continuation? context)
-                 (plug-inner return inner-form context)
-                 (plug
-                  (fn [_]
-                    (return `(ClosureResult. ~inner-form)))
-                  inner-form
-                  context)))
-             (meta plug-inner))))
-        `(.value ~closure-symbol)
-        context)))
-   plug))
+  (let [closure-symbol (gensym "c__")]
+    (plug
+     (fn [body-form]
+       (return
+        (fn [return outer-form context]
+          (plug
+           return
+           (prepend-binding
+            `(if (instance? Result ~closure-symbol)
+               ~(prepend-binding
+                 'let*
+                 body-form
+                 closure-symbol
+                 `(.value ~closure-symbol))
+               ~closure-symbol)
+            'let*
+            closure-symbol
+            outer-form)
+           context))
+        (with-meta
+          (fn [return inner-form context]
+            (if (:in-continuation? context)
+              (plug return inner-form context)
+              (plug
+               (fn [_]
+                 (return `(ClosureResult. ~inner-form)))
+               inner-form
+               context)))
+          (meta plug))))
+     closure-symbol
+     context)))
