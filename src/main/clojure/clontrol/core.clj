@@ -27,20 +27,6 @@
             export-meta#)))
       (deref ~resolved-symbol))))
 
-(def ^:private direct-namespace-pattern
-  (re-pattern "clojure\\..*"))
-
-(defn- mark-direct-namespaces!
-  [pattern]
-  (loop [namespaces (all-ns)]
-    (when (seq namespaces)
-      (let [[namespace & namespaces'] namespaces]
-        (when (re-find pattern (str namespace))
-          (alter-meta! namespace assoc :direct true))
-        (recur namespaces')))))
-
-(mark-direct-namespaces! direct-namespace-pattern)
-
 (re-export reset operator/reset)
 
 (re-export shift operator/shift)
