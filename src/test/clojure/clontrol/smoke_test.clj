@@ -2125,4 +2125,46 @@
            (smoke 42)))]
     (is (= (reset
             (do-loop 0))
-           42))))
+           42)))
+
+  (is (= (reset
+          (loop [n 0]
+            (if (< n 1000000)
+              (if (= (mod n 3) 0)
+                (if false
+                  (smoke nil)
+                  (recur (inc n)))
+                (recur (inc (inc n))))
+              (smoke 42))))
+         42))
+
+  (let [do-loop
+        (fn-shift
+         [n]
+         (do
+           (when false (smoke nil))
+           (if (< n 1000000)
+             (recur (inc n))
+             (smoke 42))))]
+    (is (= (reset
+            (do-loop 0))
+           42)))
+
+  (is (= (reset
+           (loop [a 0 b 1]
+             (if (> a 1000000)
+               (smoke b)
+               (recur b (+ a b)))))
+         2178309)))
+
+(clojure.pprint/pprint
+ (clojure.walk/macroexpand-all
+  '(reset
+     (loop [n 0]
+       (do
+         (if false
+           (shift identity)
+           nil)
+         (if (< n 1000)
+           (recur (inc n))
+           n))))))
