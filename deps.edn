@@ -8,7 +8,6 @@
  {;; DEVELOPMENT
   :dev
   {:jvm-opts ["-Djdk.attach.allowAttachSelf"]
-   :extra-paths ["target/classes"]
    :extra-deps
    {com.clojure-goes-fast/clj-java-decompiler
     {:mvn/version "0.3.7"}
