@@ -17,12 +17,12 @@
 
 (defmacro ^:private def-Shifter-protocol
   {:clj-kondo/lint-as 'clojure.core/defprotocol}
-  [name-symbol]
+  [protocol-name]
   (let [this-symbol 'this
         return-symbol 'return
         invoke-symbol 'invoke-shift
         apply-symbol 'apply-shift]
-    `(defprotocol ~name-symbol
+    `(defprotocol ~protocol-name
        (~invoke-symbol
          ~@(for [parameter-symbols (make-parameter-arities shifter-arities)]
              `[~this-symbol ~return-symbol ~@parameter-symbols]))
@@ -36,16 +36,20 @@
 (def-Shifter-protocol
   Shifter)
 
+(definline shifter?
+  [value]
+  `(instance? clontrol.function.shifter.Shifter ~value))
+
 (declare ^:private throw-out-of-prompt-exception)
 
 (defmacro ^:private def-FnShift-type
   {:clj-kondo/lint-as 'clojure.core/deftype}
-  [name-symbol]
+  [type-name]
   (let [handler-symbol
         (with-meta
           'run-with-continuation
           {:tag 'clojure.lang.IFn})]
-    `(deftype ~name-symbol
+    `(deftype ~type-name
          [~handler-symbol]
 
          Shifter
@@ -75,12 +79,12 @@
 
 (defmacro ^:private def-call-shift-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
-  [name-symbol]
+  [function-name]
   (let [shifter-class-symbol 'clontrol.function.shifter.Shifter
         function-symbol 'function
         shifter-symbol (vary-meta function-symbol assoc :tag shifter-class-symbol)
         return-symbol 'return]
-    `(defn ~name-symbol
+    `(defn ~function-name
        ~@(for [parameter-symbols (make-parameter-arities (- shifter-arities 1))]
            `([~function-symbol ~return-symbol ~@parameter-symbols]
              (. ~shifter-symbol invoke-shift ~return-symbol ~@parameter-symbols)))
