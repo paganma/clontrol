@@ -124,7 +124,7 @@
    (fn [{function-node :fn
          :as invoke-node}]
      (return
-      (if (and (= (read-function-type function-node) :direct)
+      (if (and (= (read-control-type function-node) :direct)
                (node/every-child? :direct? invoke-node))
         (assoc invoke-node :direct? true)
         invoke-node)))
