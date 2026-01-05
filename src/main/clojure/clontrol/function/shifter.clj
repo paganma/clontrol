@@ -45,6 +45,7 @@
           {:tag 'clojure.lang.IFn})]
     `(deftype ~name-symbol
          [~handler-symbol]
+
          Shifter
          ~@(for [parameter-symbols (make-parameter-arities shifter-arities)]
              `(invoke-shift
