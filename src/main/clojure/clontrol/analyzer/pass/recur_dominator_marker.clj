@@ -2,50 +2,47 @@
   "Marks the nodes dominating a `recur` expression in an AST."
   (:require
    [clontrol.analyzer.node
-    :as node]
-   [clontrol.analyzer.pass.direct-marker
-    :refer [mark-direct]]))
+    :as node]))
+
+(declare mark-tail)
 
 (defn mark-intermediate
   [return node]
-  (if (:recur-dominator? node)
-    (return node)
-    (let [node (assoc node :recur-dominator? true)]
-      (if (node/intermediate? node)
-        (return node)
-        #(node/update-children return mark-intermediate node)))))
+  (node/update-children
+   return
+   (fn [return child-node]
+     (if (node/intermediate? child-node)
+       (if (:recur-dominator? node)
+         (mark-intermediate return (assoc child-node :recur-dominator? true))
+         (mark-intermediate return child-node))
+       (mark-tail return child-node)))
+   node))
 
-(defn mark-expression
+(defn mark-tail
   [return node]
   (node/update-children
-   (fn [{operation :op
-         :as node}]
-     (if (or (= operation :recur)
-             (node/some-child?
-              (fn [child-node]
-                (and (not (= (:op child-node) :loop))
-                     (node/tail? child-node)
-                     (:recur-dominator? child-node)))
-              node))
-       (mark-intermediate return node)
+   (fn [node]
+     (if (node/some-child? :recur-dominator? node)
+       (mark-intermediate return (assoc node :recur-dominator? true))
        (return node)))
    (fn [return child-node]
      (if (node/tail? child-node)
-       #(mark-expression return child-node)
-       (return child-node)))
+       (if (= (:op child-node) :recur)
+         (return (assoc child-node :recur-dominator? true))
+         (mark-tail return child-node))
+       (mark-intermediate return child-node)))
    node))
 
-(def ^:dynamic *mark*
-  "The `mark` function used by `mark-pure`.
-
-  Default value is [[mark-expression]]."
-  mark-expression)
+(defn mark-expression
+  [return node]
+  (if (node/tail? node)
+    (mark-tail return node)
+    (mark-intermediate return node)))
 
 (defn mark-recur-dominator
   {:pass-info
-   {:depends #{#'mark-direct}
-    :walk :none}}
+   {:walk :none}}
   ([node]
    (trampoline mark-recur-dominator identity node))
   ([return node]
-   (*mark* return node)))
+   (mark-expression return node)))
