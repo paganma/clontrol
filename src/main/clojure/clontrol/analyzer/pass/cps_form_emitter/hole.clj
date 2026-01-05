@@ -26,14 +26,14 @@
          (return
           `(fn* ([~argument-symbol] ~body-form))))
        argument-symbol
-       (merge context {:in-continuation? true})))))
+       (assoc context :in-continuation? true)))))
 
-(defn reify-hole
-  [return return-tail plug-tail context]
+(defn capture-hole
+  [return return-tail plug context]
   (hole->continuation-form
    (fn [continuation-form]
      (if (symbol? continuation-form)
-       (return return-tail plug-tail context)
+       (return return-tail plug)
        (let [continuation-symbol (gensym "p__")]
          (return
           (fn [tail-form]
@@ -45,46 +45,46 @@
               continuation-form)))
           ^{:function-form continuation-symbol}
           (fn [return intermediate-form _]
-            (return `(~continuation-symbol ~intermediate-form)))
-          context))))
-   plug-tail
+            (return `(~continuation-symbol ~intermediate-form)))))))
+   plug
    context))
 
-(deftype Result [value])
+(deftype IntermediateResult [value])
 
-(defn isolate-hole
-  [return return-tail plug-tail context]
-  (let [continuation-symbol (gensym "p__")]
-    (hole->continuation-form
-     (fn [continuation-form]
+(defn capture-recur-hole
+  [return return-tail plug context]
+  (hole->continuation-form
+   (fn [continuation-form]
+     (let [continuation-symbol (gensym "p__")
+           result-symbol (gensym "i__")]
        (return
-        (fn [result-form]
-          (let [result-symbol (gensym "i__")]
-            (plug-tail
-             (fn [tail-form]
-               (return-tail
-                (prepend-binding
-                 (prepend-binding
-                  `(if (instance? Result ~result-symbol)
+        (fn [intermediate-form]
+          (plug
+           (fn [tail-form]
+             (return-tail
+              (-> `(if (instance? IntermediateResult ~result-symbol)
                      ~(prepend-binding
                        tail-form
                        'let*
                        result-symbol
-                       `(.value ~result-symbol))
+                       `(.value
+                         ~(with-meta result-symbol
+                            {:tag IntermediateResult})))
                      ~result-symbol)
-                  'let*
-                  result-symbol
-                  result-form)
-                 'let*
-                 continuation-symbol
-                 continuation-form)))
-             result-symbol
-             context)))
+                  (prepend-binding
+                   'let*
+                   result-symbol
+                   intermediate-form)
+                  (prepend-binding
+                   'let*
+                   continuation-symbol
+                   continuation-form))))
+           result-symbol
+           context))
         ^{:function-form continuation-symbol}
         (fn [return intermediate-form context]
           (if (:in-continuation? context)
             (return `(~continuation-symbol ~intermediate-form))
-            (return `(Result. ~intermediate-form))))
-        context))
-     plug-tail
-     context)))
+            (return `(IntermediateResult. ~intermediate-form)))))))
+   plug
+   context))

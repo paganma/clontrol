@@ -2297,6 +2297,67 @@
               (recur (inc n))
               (smoke 42))))
          42))
+(reset-invariant?
+   (loop [n 0]
+     (loop [x 0]
+       (try
+         (when false
+           (smoke 0))
+         (case 0
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception e
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (loop [x 0]
+       (try
+         (when false
+           (smoke 0))
+         (case 0
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception e
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (loop [x 0]
+       (try
+         (when false
+           (smoke 0))
+         (case 0
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception e
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (loop [x 0]
+       (when false
+         (smoke 0))
+       (try
+         (case n
+           10 (smoke 42)
+           20 (smoke 42)
+           10)
+         (catch Exception e
+           (if false
+             (smoke 42)
+             nil)))
+       (when (< x 100)
+         (recur (inc x))))
+     (if (< n 100)
+       (recur (inc n))
+       (smoke 42))))
 
   (is (= (reset
            (loop [n 0]
@@ -2357,22 +2418,3 @@
                (smoke b)
                (recur b (+ a b)))))
          196418)))
-
-(time
- (reset
-   (loop [n 0]
-     (loop [x 0]
-       (when (< x 100)
-         (recur (inc x))))
-     (loop [x 0]
-       (try
-         (catch Exception e
-           (if false
-             (smoke 42)
-             nil)))
-       (when (< x 100)
-         (recur (inc x))))
-     (if (< n 100)
-       (recur (inc n))
-       (smoke 42)))))
-

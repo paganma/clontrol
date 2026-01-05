@@ -10,8 +10,8 @@
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [continuation-form->hole
             hole->continuation-form
-            isolate-hole
-            reify-hole]]
+            capture-recur-hole
+            capture-hole]]
    [clontrol.analyzer.pass.direct-marker
     :refer [mark-direct]]
    [clontrol.analyzer.pass.form-builder
@@ -159,24 +159,6 @@
 (def ^:dynamic *branch-operations*
   #{:if :case :try})
 
-(defn emit-recur-intermediate
-  [return plug node context]
-  (isolate-hole
-   (fn [return plug context]
-     (emit-tail return plug node context))
-   return
-   plug
-   context))
-
-(defn emit-captured-intermediate
-  [return plug node context]
-  (reify-hole
-   (fn [return plug context]
-     (emit-tail return plug node context))
-   return
-   plug
-   context))
-
 (defn emit-intermediate
   "Emits the `node`'s form yielding its result to `plug` in an intermediate
   position."
@@ -189,8 +171,18 @@
   (if (or (seq shadowed-symbols)
           (*branch-operations* operation))
     (if (:recur-dominator? node)
-      (emit-recur-intermediate return plug node context)
-      (emit-captured-intermediate return plug node context))
+      (capture-recur-hole
+       (fn [return plug]
+         (emit-tail return plug node context))
+       return
+       plug
+       context)
+      (capture-hole
+       (fn [return plug]
+         (emit-tail return plug node context))
+       return
+       plug
+       context))
     (emit-tail return plug node context)))
 
 (defn emit-value
@@ -208,7 +200,12 @@
          (let [result-symbol (gensym "e__")]
            (plug
             (fn [body-form]
-              (return (prepend-binding body-form 'let* result-symbol value-form)))
+              (return
+               (prepend-binding
+                body-form
+                'let*
+                result-symbol
+                value-form)))
             result-symbol
             context)))
        value-node
