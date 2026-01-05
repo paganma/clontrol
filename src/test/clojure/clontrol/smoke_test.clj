@@ -2151,7 +2151,8 @@
            42)))
 
   (is (= (reset
-           (loop [a 0 b 1]
+           (loop [a 0
+                  b 1]
              (if (> a 1000000)
                (smoke b)
                (recur b (+ a b)))))
