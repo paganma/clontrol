@@ -38,6 +38,14 @@
     (binding [*scheduled-pass* run-cps-form-emitter]
       (analyzer/analyze body-form local-environment))))
 
+(defn- emit-test
+  [continuation-form body-form]
+  `(~'equivalent-to?
+    (~'emit-cps
+     (quote ~continuation-form)
+     (quote ~body-form))
+    (quote ~(emit-cps continuation-form body-form))))
+
 (deftest form-conversion-test
   (testing "Conversion of IMPORT"
     (is (equivalent-to?
@@ -61,7 +69,25 @@
          '#{k x x1}
          (emit-cps 'k `(def ~'v (shift (fn [~'k]))))
          '((fn* ([x]))
-           (fn* ([x1] (k (def v x1))))))))
+           (fn* ([x1] (k (def v x1)))))))
+    (is (equivalent-to?
+         '#{k x t}
+         (emit-cps
+          'k
+          '(def t "doc" (clontrol.operator/shift clojure.core/identity)))
+         '(clojure.core/identity (fn* ([x] (k (def t "doc" x))))))))
+
+  (testing "Conversion of DEFN"
+    (is (equivalent-to?
+         (emit-cps `identity '(defn f [x]))
+         '(def f (clojure.core/fn ([x])))))
+    (is (equivalent-to?
+         '#{k x f}
+         (emit-cps
+          'k
+          '(clojure.core/defn
+             ^{:test (clontrol.operator/shift clojure.core/identity)} f []))
+         '(clojure.core/identity (fn* ([x] (k (def ^{:test x} f (fn* ([]))))))))))
 
   (testing "Conversion of MONITOR-ENTER"
     (equivalent-to?
