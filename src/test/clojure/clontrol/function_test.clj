@@ -523,16 +523,70 @@
 (testing "Error handling"
     (is (thrown?
          clojure.lang.ExceptionInfo
-         (eval `((fn-shift [])))))
+         ((fn-shift []))))
     (is (thrown?
          clojure.lang.ExceptionInfo
-         (eval `((fn-shift [p1#]) 1))))
+         ((fn-shift [p1]) 1)))
     (is (thrown?
          clojure.lang.ExceptionInfo
-         (eval `((fn-shift [p1# p2#]) 1 2))))
+         ((fn-shift [p1 p2]) 1 2)))
     (is (thrown?
          clojure.lang.ExceptionInfo
-         (eval `((fn-shift [p1# p2# p3#]) 1 2 3))))))
+         ((fn-shift [p1 p2 p3]) 1 2 3)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4]) 1 2 3 4)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5]) 1 2 3 4 5)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6]) 1 2 3 4 5 6)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7]) 1 2 3 4 5 6 7)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8]) 1 2 3 4 5 6 7 8)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9]) 1 2 3 4 5 6 7 8 9)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p10])
+          1 2 3 4 5 6 7 8 9 10)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11])
+          1 2 3 4 5 6 7 8 9 10 11)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11 p12])
+          1 2 3 4 5 6 7 8 9 10 11 12)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11 p12 p13])
+          1 2 3 4 5 6 7 8 9 10 11 12 13)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11 p12 p13 p14])
+          1 2 3 4 5 6 7 8 9 10 11 12 13 14)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11 p12 p13 p14 p15])
+          1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11 p12 p13 p14 p15 p16])
+          1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11 p12 p13 p14 p15 p16 p17])
+          1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17)))
+    (is (thrown?
+         clojure.lang.ExceptionInfo
+         ((fn-shift [p1 p2 p3 p4 p5 p6 p7 p8 p9 p11 p12 p13 p14 p15 p16 p17 p18])
+          1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18)))))
 
 (deftest defn-shift-test
   (testing "Well formed functions"
