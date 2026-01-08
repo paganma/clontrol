@@ -1,19 +1,15 @@
 (ns clontrol.function.shifter
   "The interface for a shifter")
 
-(def ^:private ^:const shifter-arities 18)
+(def ^:private ^:const max-invoke-parameters 22)
 
-(def ^:private ^:const function-arities 21)
+(def ^:private ^:const max-function-parameters 20)
 
-(defn ^:private make-parameter-arity
+(defn ^:private make-parameter-symbols
   [parameters-count]
-  (for [i (range parameters-count)]
-    (symbol (str "p" i))))
-
-(defn ^:private make-parameter-arities
-  [arities-count]
-  (for [i (range arities-count)]
-    (make-parameter-arity i)))
+  (vec
+   (for [i (range parameters-count)]
+     (symbol (str "p" (+ i 1))))))
 
 (declare ^:private throw-out-of-prompt-exception)
 
@@ -21,36 +17,51 @@
   {:clj-kondo/lint-as 'clojure.core/deftype}
   [type-name]
   (let [handler-symbol (vary-meta 'handler assoc :tag 'clojure.lang.IFn)
-        this-symbol (gensym "this__")]
+        this-symbol 'this]
     `(deftype ~type-name
          [~handler-symbol]
+
        clojure.lang.IFn
-       ~@(for [parameter-symbols (make-parameter-arities function-arities)]
-           `(invoke
-             [~this-symbol ~@parameter-symbols]
-             (throw-out-of-prompt-exception ~this-symbol))))))
+       ~@(for [parameters-count (range max-invoke-parameters)]
+           (let [parameter-symbols (make-parameter-symbols parameters-count)]
+             `(invoke
+               [~this-symbol ~@parameter-symbols]
+               (throw-out-of-prompt-exception ~this-symbol))))
+
+       ~(let [rest-symbol 'ps]
+          `(applyTo
+            [~this-symbol ~rest-symbol]
+            (throw-out-of-prompt-exception ~this-symbol))))))
 
 (def-Shifter-type Shifter)
 
-(definline shifter?
-  [value]
-  `(instance? clontrol.function.shifter.Shifter ~value))
-
-(defn- throw-out-of-prompt-exception
+(defn ^:private throw-out-of-prompt-exception
   [^clontrol.function.shifter.Shifter this]
   (throw
    (ex-info
     (str this " can only be invoked within a continuation prompt.")
     {:handler (. this handler)})))
 
+(definline shifter?
+  [value]
+  `(instance? clontrol.function.shifter.Shifter ~value))
+
+
+;;;; * Shifter callers
+
+(def ^:private max-shifter-parameters (- max-function-parameters 3))
+
+
+;;;; ** invoke-shift
+
 (defn ^:private emit-invoke-shift-body
-  [shifter-symbol handler-symbol return-symbol parameter-symbols]
+  [shifter-symbol handler-symbol return-symbol parameter-forms]
   `(let [~handler-symbol (. ~shifter-symbol handler)]
-     (. ~handler-symbol invoke ~return-symbol ~@parameter-symbols)))
+     (. ~handler-symbol invoke ~return-symbol ~@parameter-forms)))
 
 (defn ^:private emit-invoke-shift-arity
-  [shifter-symbol handler-symbol return-symbol arity-count]
-  (let [parameter-symbols (make-parameter-arity arity-count)]
+  [shifter-symbol handler-symbol return-symbol parameters-count]
+  (let [parameter-symbols (make-parameter-symbols parameters-count)]
     `([~shifter-symbol ~return-symbol ~@parameter-symbols]
       ~(emit-invoke-shift-body
         shifter-symbol
@@ -58,19 +69,19 @@
         return-symbol
         parameter-symbols))))
 
-(defn ^:private emit-invoke-shift-variadic-body
+(defn ^:private emit-variadic-invoke-shift-body
   [shifter-symbol handler-symbol return-symbol parameter-symbols rest-form]
   (let [argument-form `(list* ~return-symbol ~@parameter-symbols ~rest-form)]
     `(let [~handler-symbol (. ~shifter-symbol handler)]
        (. ~handler-symbol applyTo ~argument-form))))
 
-(defn ^:private emit-invoke-shift-variadic-arity
+(defn ^:private emit-variadic-invoke-shift-arity
   [shifter-symbol handler-symbol return-symbol]
-  (let [parameter-symbols (vec (make-parameter-arity (- shifter-arities 1)))
+  (let [parameter-symbols (make-parameter-symbols (- max-shifter-parameters 1))
         rest-symbol 'ps
         variadic-parameter-symbols (conj parameter-symbols '& rest-symbol)]
     `([~shifter-symbol ~return-symbol ~@variadic-parameter-symbols]
-      ~(emit-invoke-shift-variadic-body
+      ~(emit-variadic-invoke-shift-body
         shifter-symbol
         handler-symbol
         return-symbol
@@ -80,17 +91,17 @@
 (defmacro ^:private def-invoke-shift-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
   [function-name]
-  (let [shifter-symbol 's
-        handler-symbol 'h
-        return-symbol 'k]
+  (let [shifter-symbol 'shifter
+        handler-symbol 'handler
+        return-symbol 'return]
     `(defn ~function-name
-       ~@(for [arity-count (range (- shifter-arities 1))]
+       ~@(for [parameters-count (range max-shifter-parameters)]
            (emit-invoke-shift-arity
             shifter-symbol
             handler-symbol
             return-symbol
-            arity-count))
-       ~(emit-invoke-shift-variadic-arity
+            parameters-count))
+       ~(emit-variadic-invoke-shift-arity
          shifter-symbol
          handler-symbol
          return-symbol))))
@@ -102,8 +113,9 @@
          return-symbol (gensym "k__")]
      `(let [~shifter-symbol ~shifter-form
             ~return-symbol ~return-form]
-        ~(if (>= (count parameters) shifter-arities)
-           (emit-invoke-shift-variadic-body
+        ~(if (> (count parameters)
+                max-shifter-parameters)
+           (emit-variadic-invoke-shift-body
             shifter-symbol
             handler-symbol
             return-symbol
@@ -119,19 +131,22 @@
   ^{:inline inline-invoke-shift}
   invoke-shift)
 
+
+;;;; ** invoke-unknown
+
 (defn ^:private emit-invoke-unknown-body
-  [function-symbol handler-symbol return-symbol parameter-symbols]
+  [function-symbol handler-symbol return-symbol parameter-forms]
   (let [shifter-symbol
         (with-meta function-symbol
           {:tag 'clontrol.function.shifter.Shifter})]
     `(if (shifter? ~function-symbol)
        (let [~handler-symbol (. ~shifter-symbol handler)]
-         (. ~handler-symbol invoke ~return-symbol ~@parameter-symbols))
-       (~return-symbol (~function-symbol ~@parameter-symbols)))))
+         (. ~handler-symbol invoke ~return-symbol ~@parameter-forms))
+       (~return-symbol (~function-symbol ~@parameter-forms)))))
 
 (defn ^:private emit-invoke-unknown-arity
-  [function-symbol handler-symbol return-symbol arity-count]
-  (let [parameter-symbols (make-parameter-arity arity-count)]
+  [function-symbol handler-symbol return-symbol parameters-count]
+  (let [parameter-symbols (make-parameter-symbols parameters-count)]
     `([~function-symbol ~return-symbol ~@parameter-symbols]
       ~(emit-invoke-unknown-body
         function-symbol
@@ -139,25 +154,25 @@
         return-symbol
         parameter-symbols))))
 
-(defn ^:private emit-invoke-unknown-variadic-body
-  [function-symbol handler-symbol return-symbol parameter-symbols rest-form]
+(defn ^:private emit-variadic-invoke-unknown-body
+  [function-symbol handler-symbol return-symbol parameter-forms rest-form]
   (let [shifter-symbol
         (with-meta function-symbol
           {:tag 'clontrol.function.shifter.Shifter})
         argument-form
-        `(list* ~return-symbol ~@parameter-symbols ~rest-form)]
+        `(list* ~return-symbol ~@parameter-forms ~rest-form)]
     `(if (shifter? ~function-symbol)
        (let [~handler-symbol (. ~shifter-symbol handler)]
          (. ~handler-symbol applyTo ~return-symbol ~argument-form))
        (~return-symbol (. ~function-symbol applyTo ~argument-form)))))
 
-(defn ^:private emit-invoke-unknown-variadic-arity
+(defn ^:private emit-variadic-invoke-unknown-arity
   [function-symbol handler-symbol return-symbol]
-  (let [parameter-symbols (vec (make-parameter-arity (- shifter-arities 1)))
+  (let [parameter-symbols (make-parameter-symbols max-shifter-parameters)
         rest-symbol 'ps
         variadic-parameter-symbols (conj parameter-symbols '& rest-symbol)]
     `([~function-symbol ~return-symbol ~@variadic-parameter-symbols]
-      ~(emit-invoke-unknown-variadic-body
+      ~(emit-variadic-invoke-unknown-body
         function-symbol
         handler-symbol
         return-symbol
@@ -167,17 +182,17 @@
 (defmacro ^:private def-invoke-unknown-fn
   {:clj-kondo/lint-as 'clojure.core/declare}
   [function-name]
-  (let [function-symbol 'f
-        handler-symbol 'h
-        return-symbol 'k]
+  (let [function-symbol 'function
+        handler-symbol 'handler
+        return-symbol 'return]
     `(defn ~function-name
-       ~@(for [arity-count (range (- shifter-arities 1))]
+       ~@(for [parameters-count (range max-shifter-parameters)]
            (emit-invoke-unknown-arity
             function-symbol
             handler-symbol
             return-symbol
-            arity-count))
-       ~(emit-invoke-unknown-variadic-arity
+            parameters-count))
+       ~(emit-variadic-invoke-unknown-arity
          function-symbol
          handler-symbol
          return-symbol))))
@@ -189,8 +204,9 @@
          return-symbol (gensym "k__")]
      `(let [~function-symbol ~function-form
             ~return-symbol ~return-form]
-        ~(if (>= (count parameters) shifter-arities)
-           (emit-invoke-unknown-variadic-body
+        ~(if (> (count parameters)
+                max-shifter-parameters)
+           (emit-variadic-invoke-unknown-body
             function-symbol
             handler-symbol
             return-symbol
