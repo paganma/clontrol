@@ -2,25 +2,18 @@
   "Intrinsic [[thunk]] operator for converting loops to CPS."
   (:refer-clojure :exclude [trampoline]))
 
-(defprotocol Thunk
-  (run [this]))
+(deftype Thunk
+  [continue])
 
 (definline thunk?
   [value]
   `(instance? clontrol.operator.intrinsic.thunk.Thunk ~value))
 
-(defn make-thunk
-  [run]
-  (reify Thunk
-    (run [_] (run))))
-
 (defmacro thunk
   "Given a `body` it defers its computation by creating the
-  corresponding [[IThunk]]."
+  corresponding [[Thunk]]."
   [& body]
-  (let [this-symbol (gensym "this__")]
-    `(reify Thunk
-       (run [~this-symbol] ~@body))))
+  `(Thunk. (fn [] ~@body)))
 
 (defn trampoline
   "Recursively expands `x` if it is a [[Thunk]] instance. Analogous
@@ -28,6 +21,6 @@
   of plain functions."
   [value]
   (if (thunk? value)
-    (let [value' (.run ^clontrol.operator.intrinsic.thunk.Thunk value)]
-      (recur value'))
+    (let [continue (. ^clontrol.operator.intrinsic.thunk.Thunk value continue)]
+      (recur (continue)))
     value))
