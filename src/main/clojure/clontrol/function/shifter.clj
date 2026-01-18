@@ -128,7 +128,7 @@
             parameters))))))
 
 (def-invoke-shift-fn
-  ^{:inline inline-invoke-shift}
+  ^{:inline #'inline-invoke-shift}
   invoke-shift)
 
 
@@ -219,5 +219,5 @@
             parameters))))))
 
 (def-invoke-unknown-fn
-  ^{:inline inline-invoke-unknown}
+  ^{:inline #'inline-invoke-unknown}
   invoke-unknown)
