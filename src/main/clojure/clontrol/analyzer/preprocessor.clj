@@ -29,12 +29,13 @@
   "Calls [[*macroexpand-1-default*]] if the form does not constitute a
   `shift*` operation."
   [form local-environment]
-  (if (and (seq? form) (= (first form) 'clontrol.operator/shift*))
-    form
-    (try
-      (*macroexpand-1-default* form local-environment)
-      (catch Exception exception
-        (let [source-info (-source-info form local-environment)
-              {file :file line :line column :column} source-info
-              symbol (first form)]
-          (throw (make-macro-exception file line column symbol exception)))))))
+  (let [head (and (seq? form) (first form))]
+    (if (= head 'clontrol.operator/shift*)
+      form
+      (try
+        (*macroexpand-1-default* form local-environment)
+        (catch Exception exception
+          (let [source-info (-source-info form local-environment)
+                {file :file line :line column :column} source-info
+                symbol (first form)]
+            (throw (make-macro-exception file line column symbol exception))))))))
