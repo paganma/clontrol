@@ -28,19 +28,16 @@
    (= (:op value) :binding)
    (contains? value :form)))
 
-(defn make-local-binding
-  "Creates a partial AST node for an environment local-binding from a
-  `binding-symbol`."
-  [binding-symbol]
-  {:op :binding
-   :name binding-symbol
-   :form binding-symbol
-   :local :let})
-
 (defn- Compiler$LocalBinding->local-binding
   "Converts a compiler `LocalBinding` into a local-binding AST node."
-  [binding]
-  (make-local-binding (.sym ^Compiler$LocalBinding binding)))
+  [^Compiler$LocalBinding binding]
+  (let [binding-symbol (.sym binding)]
+    {:op :binding
+     :name binding-symbol
+     :form binding-symbol
+     :tag (or (.getPrimitiveType binding)
+              (.tag binding))
+     :local :let}))
 
 (defn parse-local-binding
   "Parses a single local-binding AST node from a compiler
@@ -50,7 +47,7 @@
   (cond
     (local-binding? local-binding)
     local-binding
-    (make-local-binding (.sym ^Compiler$LocalBinding local-binding))
+    (instance? Compiler$LocalBinding local-binding)
     (Compiler$LocalBinding->local-binding local-binding)
     :else
     (throw
@@ -68,6 +65,20 @@
             (let [local-binding (parse-local-binding binding)]
               [binding-symbol local-binding]))]
     (into {} (map parse-entry) bindings)))
+
+(defn parameter-binding?
+  [binding]
+  (and
+   (local-binding? binding)
+   (= (:local binding) :arg)))
+
+(defn symbol->parameter-binding
+  [symbol]
+  {:op :binding
+   :name symbol
+   :form symbol
+   :tag (:tag (meta symbol))
+   :local :arg})
 
 ;;;; * Parsing forms
 

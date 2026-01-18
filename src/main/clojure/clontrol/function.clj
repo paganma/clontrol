@@ -10,7 +10,7 @@
     :refer [*make-local-environment*
             *scheduled-pass*]]
    [clontrol.analyzer.parser
-    :refer [make-local-binding
+    :refer [symbol->parameter-binding
             parse-local-bindings]]
    [clontrol.analyzer.pass.cps-form-emitter
     :refer [run-cps-form-emitter]]))
@@ -120,13 +120,13 @@
            (let [body-form
                  (list* 'do body-forms)
                  local-bindings
-                 (assoc local-bindings name-symbol (make-local-binding name-symbol))
+                 (assoc local-bindings name-symbol (symbol->parameter-binding name-symbol))
                  local-bindings
                  (into
                   local-bindings
                   (map
                    (fn [parameter-symbol]
-                     [parameter-symbol (make-local-binding parameter-symbol)]))
+                     [parameter-symbol (symbol->parameter-binding parameter-symbol)]))
                   parameter-symbols)
                  local-environment
                  (merge
@@ -184,7 +184,7 @@
           (gensym (str name-symbol "_cps__"))
           (gensym "fn_cps__"))
         local-bindings
-        (assoc local-bindings name-symbol (make-local-binding name-symbol))]
+        (assoc local-bindings name-symbol (symbol->parameter-binding name-symbol))]
     `(Shifter.
       ~(emit-fn-cps
         (fn [body-form]
