@@ -111,7 +111,7 @@
    (let [shifter-symbol (gensym "s__")
          handler-symbol (gensym "h__")
          return-symbol (gensym "k__")]
-     `(let [~shifter-symbol ~shifter-form
+     `(let [~shifter-symbol (. clojure.lang.RT (box ~shifter-form))
             ~return-symbol ~return-form]
         ~(if (> (count parameters)
                 max-shifter-parameters)
@@ -202,7 +202,7 @@
    (let [function-symbol (gensym "s__")
          handler-symbol (gensym "h__")
          return-symbol (gensym "k__")]
-     `(let [~function-symbol ~function-form
+     `(let [~function-symbol (. clojure.lang.RT (box ~function-form))
             ~return-symbol ~return-form]
         ~(if (> (count parameters)
                 max-shifter-parameters)
