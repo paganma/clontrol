@@ -2,8 +2,8 @@
   "Intrinsic [[thunk]] operator for converting loops to CPS."
   (:refer-clojure :exclude [trampoline]))
 
-(deftype Thunk
-  [continue])
+(definterface Thunk
+  (step []))
 
 (definline thunk?
   [value]
@@ -13,7 +13,8 @@
   "Given a `body` it defers its computation by creating the
   corresponding [[Thunk]]."
   [& body]
-  `(Thunk. (fn [] ~@body)))
+  `(reify Thunk
+     (step [this] ~@body)))
 
 (defn inline-trampoline
   [value-form]
@@ -22,11 +23,10 @@
         thunk-symbol
         (with-meta value-symbol
           {:tag 'clontrol.operator.intrinsic.thunk.Thunk})]
-    `(let [~value-symbol (. clojure.lang.RT (box ~value-form))]
-       (loop [~value-symbol ~value-symbol]
-         (if (thunk? ~value-symbol)
-           (recur ((. ~thunk-symbol continue)))
-           ~value-symbol)))))
+    `(loop [~value-symbol (. clojure.lang.RT (box ~value-form))]
+       (if (thunk? ~value-symbol)
+         (recur (. ~thunk-symbol (step)))
+         ~value-symbol))))
 
 (defn trampoline
   "Recursively expands `x` if it is a [[Thunk]] instance. Analogous
@@ -35,6 +35,5 @@
   {:inline #'inline-trampoline}
   [value]
   (if (thunk? value)
-    (let [continue (. ^clontrol.operator.intrinsic.thunk.Thunk value continue)]
-      (recur (continue)))
+    (recur (. ^clontrol.operator.intrinsic.thunk.Thunk value (step)))
     value))
