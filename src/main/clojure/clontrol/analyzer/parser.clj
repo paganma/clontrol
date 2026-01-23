@@ -17,6 +17,7 @@
    [clontrol.analyzer.exception
     :refer [make-compiler-exception]]))
 
+
 ;;;; * Parsing the local environment
 
 (defn- local-binding?
@@ -80,6 +81,7 @@
    :tag (:tag (meta symbol))
    :local :arg})
 
+
 ;;;; * Parsing forms
 
 (def ^:dynamic *parse-default*
