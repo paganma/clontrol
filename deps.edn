@@ -12,7 +12,9 @@
    {com.clojure-goes-fast/clj-java-decompiler
     {:mvn/version "0.3.7"}
     com.clojure-goes-fast/clj-async-profiler
-    {:mvn/version "1.6.2"}}}
+    {:mvn/version "1.6.2"}
+    criterium/criterium
+    {:mvn/version "0.4.6"}}}
 
   ;; BUILD
   :build
