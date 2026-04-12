@@ -22,7 +22,7 @@
     :refer [mark-pure]]
    [clontrol.analyzer.pass.shadowings-tagger
     :refer [tag-shadowings]]
-   [clontrol.operator.intrinsic.thunk
+   [clontrol.operator.thunk
     :refer [thunk]
     :as thunk]
    [clontrol.function.shifter

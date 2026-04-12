@@ -1,4 +1,4 @@
-(ns clontrol.operator.intrinsic.thunk
+(ns clontrol.operator.thunk
   "Intrinsic [[thunk]] operator for converting loops to CPS."
   (:refer-clojure :exclude [trampoline]))
 
@@ -7,7 +7,7 @@
 
 (definline thunk?
   [value]
-  `(instance? clontrol.operator.intrinsic.thunk.Thunk ~value))
+  `(instance? clontrol.operator.thunk.Thunk ~value))
 
 (defmacro thunk
   "Given a `body` it defers its computation by creating the
@@ -22,7 +22,7 @@
         (gensym "v__")
         thunk-symbol
         (with-meta value-symbol
-          {:tag 'clontrol.operator.intrinsic.thunk.Thunk})]
+          {:tag 'clontrol.operator.thunk.Thunk})]
     `(loop [~value-symbol (. clojure.lang.RT (box ~value-form))]
        (if (thunk? ~value-symbol)
          (recur (. ~thunk-symbol (step)))
@@ -35,5 +35,5 @@
   {:inline #'inline-trampoline}
   [value]
   (if (thunk? value)
-    (recur (. ^clontrol.operator.intrinsic.thunk.Thunk value (step)))
+    (recur (. ^clontrol.operator.thunk.Thunk value (step)))
     value))

@@ -1,10 +1,10 @@
-(ns clontrol.operator.intrinsic.thunk-test
+(ns clontrol.operator.thunk-test
   (:require
    [clojure.test
     :refer [deftest
             is
             testing]]
-   [clontrol.operator.intrinsic.thunk
+   [clontrol.operator.thunk
     :as thunk
     :refer [thunk
             thunk?]]))
