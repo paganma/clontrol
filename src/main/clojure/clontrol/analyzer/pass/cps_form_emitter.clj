@@ -6,7 +6,7 @@
    [clojure.tools.analyzer.utils
     :refer [-source-info]]
    [clontrol.analyzer.pass.control-type-reader
-    :refer [read-control-type]]
+    :refer [*read-control-type*]]
    [clontrol.analyzer.pass.cps-form-emitter.hole
     :refer [capture-hole
             continuation-form->hole
@@ -27,8 +27,7 @@
     :as thunk]
    [clontrol.function.shifter
     :refer [invoke-shift
-            invoke-unknown
-            shifter?]]))
+            invoke-unknown]]))
 
 
 ;;;; * Form Emitters
@@ -493,7 +492,7 @@
      (emit-values
       return
       (fn [return argument-forms]
-        (case (read-control-type function-node)
+        (case (*read-control-type* function-node)
           :direct
           (plug
            return

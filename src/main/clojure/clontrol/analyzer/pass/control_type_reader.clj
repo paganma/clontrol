@@ -30,10 +30,10 @@
   "Meta-tag used to mark shift functions."
   :shift)
 
-(defn read-control-type
+(defn read-control-type-from-meta
   "Reads the function type of an AST `function-node`, returning either `:direct`
-  if it is a direct function, `:shift` if it is a shift function, or `:unknown`
-  if the type cannot be determined."
+  if it contains the `:direct` tag, `:shift` if it contains a `:shift` tag, or
+  `:unknown` if the type cannot be determined."
   [function-node]
   (let [function-meta (read-meta function-node)
         namespace (:ns function-meta)
@@ -46,3 +46,15 @@
       (*direct-namespaces* namespace) :direct
       (*shift-namespaces* namespace) :direct
       :else :unknown)))
+
+(def ^:dynamic *read-control-type*
+  "The function used by [[direct-marker]] to extract the control type of a
+  `function-node`. Possible values returned by this function are:
+
+  - `direct`: If the function can be called directly i.e. without capturing the
+    continuation.
+  - `shift`: If the function must be called in CPS.
+  - `unknown`: If the function may be called either directly or in CPS.
+
+  Default value is [[read-control-type-from-meta]]"
+  read-control-type-from-meta)

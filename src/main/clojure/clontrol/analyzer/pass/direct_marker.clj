@@ -4,7 +4,7 @@
    [clojure.tools.analyzer.passes
     :refer [schedule]]
    [clontrol.analyzer.pass.control-type-reader
-    :refer [read-control-type]]
+    :refer [*read-control-type*]]
    [clontrol.analyzer.node
     :as node]))
 
@@ -124,7 +124,7 @@
    (fn [{function-node :fn
          :as invoke-node}]
      (return
-      (if (and (= (read-control-type function-node) :direct)
+      (if (and (= (*read-control-type* function-node) :direct)
                (node/every-child? :direct? invoke-node))
         (assoc invoke-node :direct? true)
         invoke-node)))
