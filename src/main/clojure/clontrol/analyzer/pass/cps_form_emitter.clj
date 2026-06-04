@@ -480,7 +480,7 @@
 
 ;;;; *** INVOKE
 
-(defn emit-invoke
+(defn emit-direct-invoke
   [return
    plug
    {function-node :fn
@@ -492,41 +492,80 @@
      (emit-values
       return
       (fn [return argument-forms]
-        (case (*read-control-type* function-node)
-          :direct
-          (plug
-           return
-           (with-node-meta
-             (list* function-form argument-forms)
-             invoke-node))
-          :shift
-          (hole->continuation-form
-           (fn [continuation-form]
-             (return
-              (with-node-meta
-                `(thunk/trampoline
-                 ~(list*
+        (plug
+         return
+         (with-node-meta
+           (list* function-form argument-forms)
+           invoke-node)))
+      argument-nodes))
+   function-node))
+
+(defn emit-shift-invoke
+  [return
+   plug
+   {function-node :fn
+    argument-nodes :args
+    :as invoke-node}]
+  (emit-value
+   return
+   (fn [return function-form]
+     (emit-values
+      return
+      (fn [return argument-forms]
+        (hole->continuation-form
+         (fn [continuation-form]
+           (return
+            (with-node-meta
+              `(thunk/trampoline
+                ~(list*
                   `invoke-shift
                   function-form
                   continuation-form
                   argument-forms))
-                invoke-node)))
-           plug)
-          :unknown
-          (hole->continuation-form
-           (fn [continuation-form]
-             (return
-              (with-node-meta
-                `(thunk/trampoline
-                 ~(list*
+              invoke-node)))
+         plug))
+      argument-nodes))
+   function-node))
+
+(defn emit-unknown-invoke
+  [return
+   plug
+   {function-node :fn
+    argument-nodes :args
+    :as invoke-node}]
+  (emit-value
+   return
+   (fn [return function-form]
+     (emit-values
+      return
+      (fn [return argument-forms]
+        (hole->continuation-form
+         (fn [continuation-form]
+           (return
+            (with-node-meta
+              `(thunk/trampoline
+                ~(list*
                   `invoke-unknown
                   function-form
                   continuation-form
                   argument-forms))
-                invoke-node)))
-           plug)))
+              invoke-node)))
+         plug))
       argument-nodes))
    function-node))
+
+(defn emit-invoke
+  [return
+   plug
+   {function-node :fn
+    :as invoke-node}]
+  (case (*read-control-type* function-node)
+    :direct
+    (emit-direct-invoke return plug invoke-node)
+    :shift
+    (emit-shift-invoke return plug invoke-node)
+    :unknown
+    (emit-unknown-invoke return plug invoke-node)))
 
 (defmethod emit
   :invoke
@@ -1084,3 +1123,4 @@
   :with-meta
   [return plug with-meta*-node]
   (emit-with-meta* return plug with-meta*-node))
+
