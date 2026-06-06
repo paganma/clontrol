@@ -574,7 +574,9 @@
     (emit-unknown-invoke return plug invoke-node)))
 
 (def ^:dynamic *emit-invoke*
-  "The function used to "
+  "The function used to emit `:invoke` nodes.
+
+  Default value is [[emit-invoke-by-control-type]]."
   emit-invoke-by-control-type)
 
 (defmethod emit
