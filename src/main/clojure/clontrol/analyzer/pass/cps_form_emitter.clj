@@ -554,7 +554,13 @@
       argument-nodes))
    function-node))
 
-(defn emit-invoke
+(defn emit-invoke-by-control-type
+  "Dispatches to an invoke-*emitter based on the control-type yielded by
+  [[*read-control-type*]]:
+
+  - [[emit-direct-invoke]] if control-type is `:direct`.
+  - [[emit-shift-invoke]] if control-type is `:shift`.
+  - [[emit-unknown-invoke]] if control-type is neither `:direct` nor `:shift`."
   [return
    plug
    {function-node :fn
@@ -567,10 +573,14 @@
     :unknown
     (emit-unknown-invoke return plug invoke-node)))
 
+(def ^:dynamic *emit-invoke*
+  "The function used to "
+  emit-invoke-by-control-type)
+
 (defmethod emit
   :invoke
   [return plug invoke-node]
-  (emit-invoke return plug invoke-node))
+  (*emit-invoke* return plug invoke-node))
 
 
 ;;;; *** LET
