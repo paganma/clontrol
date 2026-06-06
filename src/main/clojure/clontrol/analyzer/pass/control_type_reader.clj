@@ -44,7 +44,7 @@
       (*direct-tag* namespace-meta) :direct
       (*shift-tag* namespace-meta) :shift
       (*direct-namespaces* namespace) :direct
-      (*shift-namespaces* namespace) :direct
+      (*shift-namespaces* namespace) :shift
       :else :unknown)))
 
 (def ^:dynamic *read-control-type*
