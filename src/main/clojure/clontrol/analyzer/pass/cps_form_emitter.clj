@@ -705,24 +705,24 @@
   (emit-let*-bindings
    return
    (fn [return binding-symbols]
-     (let [continuation-symbol (gensym "k__")]
-       (emit-tail
-        (fn [body-form]
-          (hole->continuation-form
-           (fn [continuation-form]
-             (return
-              (with-node-meta
-                `(thunk/trampoline
-                  ~(list*
-                    `(fn* ~loop-symbol
-                          ([~continuation-symbol ~@binding-symbols]
-                           ~body-form))
-                    continuation-form
-                    binding-symbols))
-                loop*-node)))
-           plug))
-        (continuation-form->hole continuation-symbol)
-        body-node)))
+     (capture-closure-hole
+      (fn [return plug]
+        (emit-tail
+         (fn [body-form]
+           (return
+            (with-node-meta
+              `(thunk/trampoline
+                ~(list*
+                  `(fn* ~loop-symbol
+                        (~binding-symbols
+                         ~body-form))
+                  binding-symbols))
+              loop*-node)))
+         plug
+         body-node))
+      return
+      plug
+      loop*-node))
    binding-nodes))
 
 (defmethod emit
@@ -838,16 +838,13 @@
   (emit-values
    return
    (fn [return argument-forms]
-     (hole->continuation-form
-      (fn [continuation-form]
-        (return
-         (let [recur-form (list* loop-symbol continuation-form argument-forms)]
-           (with-node-meta
-             (if (:cps-form-emitter/thunk-recur? passes-options)
-               `(thunk ~recur-form)
-               recur-form)
-             recur-node))))
-      plug))
+     (return
+      (let [recur-form (list* loop-symbol argument-forms)]
+        (with-node-meta
+          (if (:cps-form-emitter/thunk-recur? passes-options)
+            `(thunk ~recur-form)
+            recur-form)
+          recur-node))))
    argument-nodes))
 
 (defmethod emit
