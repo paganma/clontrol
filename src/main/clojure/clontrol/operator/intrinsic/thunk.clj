@@ -14,7 +14,10 @@
   corresponding [[Thunk]]."
   [& body]
   `(reify Thunk
-     (step [this] ~@body)))
+     (step [this] ~@body)
+
+     java.lang.Object
+     (toString [_] "THUNK")))
 
 (defn inline-trampoline
   [value-form]

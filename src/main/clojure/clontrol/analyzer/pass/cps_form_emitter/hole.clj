@@ -1,7 +1,9 @@
 (ns clontrol.analyzer.pass.cps-form-emitter.hole
   (:require
    [clontrol.analyzer.pass.form-builder
-    :refer [prepend-binding]]))
+    :refer [prepend-binding]]
+   [clontrol.operator.capture
+    :refer [capture]]))
 
 (def plug-into-identity
   ^{:function-form `identity}

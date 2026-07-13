@@ -113,36 +113,35 @@
   ([name-symbol arity-forms local-bindings]
    (emit-fn-cps identity name-symbol arity-forms local-bindings))
   ([return-body name-symbol arity-forms local-bindings]
-   (let [continuation-symbol (gensym "k__")]
-     `(fn*
-       ~name-symbol
-       ~@(for [[parameter-symbols & body-forms] arity-forms]
-           (let [body-form
-                 (list* 'do body-forms)
-                 local-bindings
-                 (assoc local-bindings name-symbol (symbol->parameter-binding name-symbol))
-                 local-bindings
-                 (into
-                  local-bindings
-                  (map
-                   (fn [parameter-symbol]
-                     [parameter-symbol (symbol->parameter-binding parameter-symbol)]))
-                  parameter-symbols)
-                 local-environment
-                 (merge
-                  (*make-local-environment*)
-                  {:passes-opts
-                   {:cps-form-emitter/continuation-form continuation-symbol
-                    :cps-form-emitter/thunk-recur? true
-                    :direct-marker/direct-recur? false}
-                   :locals local-bindings
-                   :context :ctx/return
-                   :loop-id name-symbol
-                   :loop-locals (count parameter-symbols)})]
-             `([~continuation-symbol ~@parameter-symbols]
-               ~(return-body
-                 (binding [*scheduled-pass* run-cps-form-emitter]
-                   (analyzer/analyze body-form local-environment))))))))))
+   `(fn*
+     ~name-symbol
+     ~@(for [[parameter-symbols & body-forms] arity-forms]
+         (let [body-form
+               (list* 'do body-forms)
+               local-bindings
+               (assoc local-bindings name-symbol (symbol->parameter-binding name-symbol))
+               local-bindings
+               (into
+                local-bindings
+                (map
+                 (fn [parameter-symbol]
+                   [parameter-symbol (symbol->parameter-binding parameter-symbol)]))
+                parameter-symbols)
+               local-environment
+               (merge
+                (*make-local-environment*)
+                {:passes-opts
+                 {:cps-form-emitter/thunk-recur? true
+                  :cps-form-emitter/capture-shift? true
+                  :direct-marker/direct-recur? false}
+                 :locals local-bindings
+                 :context :ctx/return
+                 :loop-id name-symbol
+                 :loop-locals (count parameter-symbols)})]
+           `(~parameter-symbols
+             ~(return-body
+               (binding [*scheduled-pass* run-cps-form-emitter]
+                 (analyzer/analyze body-form local-environment)))))))))
 
 (defmacro fn-cps
   "Constructor for a CPS function.

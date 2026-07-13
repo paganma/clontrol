@@ -1,5 +1,11 @@
 (ns clontrol.function.shifter
-  "The interface for a shifter")
+  "The calling interface of a shifter: A function able to capture the current
+  continuation."
+  (:require
+   [clontrol.operator.capture
+    :as capture]
+   [clontrol.operator.thunk
+    :as thunk]))
 
 (def ^:private ^:const max-invoke-parameters 22)
 
@@ -57,7 +63,8 @@
 (defn ^:private emit-invoke-shift-body
   [shifter-symbol handler-symbol return-symbol parameter-forms]
   `(let [~handler-symbol (. ~shifter-symbol handler)]
-     (. ~handler-symbol invoke ~return-symbol ~@parameter-forms)))
+     (capture/bind ~return-symbol
+                   (thunk/trampoline (. ~handler-symbol invoke ~@parameter-forms)))))
 
 (defn ^:private emit-invoke-shift-arity
   [shifter-symbol handler-symbol return-symbol parameters-count]
@@ -71,9 +78,10 @@
 
 (defn ^:private emit-variadic-invoke-shift-body
   [shifter-symbol handler-symbol return-symbol parameter-symbols rest-form]
-  (let [argument-form `(list* ~return-symbol ~@parameter-symbols ~rest-form)]
+  (let [argument-form `(list* ~@parameter-symbols ~rest-form)]
     `(let [~handler-symbol (. ~shifter-symbol handler)]
-       (. ~handler-symbol applyTo ~argument-form))))
+       (capture/bind ~return-symbol
+                     (thunk/trampoline (. ~handler-symbol applyTo ~argument-form))))))
 
 (defn ^:private emit-variadic-invoke-shift-arity
   [shifter-symbol handler-symbol return-symbol]
@@ -140,8 +148,7 @@
         (with-meta function-symbol
           {:tag 'clontrol.function.shifter.Shifter})]
     `(if (shifter? ~function-symbol)
-       (let [~handler-symbol (. ~shifter-symbol handler)]
-         (. ~handler-symbol invoke ~return-symbol ~@parameter-forms))
+       (invoke-shift ~shifter-symbol ~return-symbol ~@parameter-forms)
        (~return-symbol (~function-symbol ~@parameter-forms)))))
 
 (defn ^:private emit-invoke-unknown-arity
@@ -162,8 +169,7 @@
         argument-form
         `(list* ~return-symbol ~@parameter-forms ~rest-form)]
     `(if (shifter? ~function-symbol)
-       (let [~handler-symbol (. ~shifter-symbol handler)]
-         (. ~handler-symbol applyTo ~return-symbol ~argument-form))
+       (invoke-shift ~shifter-symbol ~return-symbol ~@parameter-forms)
        (~return-symbol (. ~function-symbol applyTo ~argument-form)))))
 
 (defn ^:private emit-variadic-invoke-unknown-arity
