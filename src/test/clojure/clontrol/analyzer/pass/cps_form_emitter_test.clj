@@ -11,7 +11,7 @@
     :refer [*make-local-environment*
             *scheduled-pass*]]
    [clontrol.analyzer.pass.cps-form-emitter
-    :refer [run-cps-form-emitter]]
+    :refer [run-cps-expression-emitter]]
    [clontrol.operator
     :refer [shift]]))
 
@@ -37,7 +37,7 @@
          {:passes-opts {:cps-form-emitter/continuation-form continuation-form
                         :cps-form-emitter/thunk-recur? false}
           :context :ctx/return})]
-    (binding [*scheduled-pass* run-cps-form-emitter]
+    (binding [*scheduled-pass* run-cps-expression-emitter]
       (analyzer/analyze body-form local-environment))))
 
 (defn- emit-test

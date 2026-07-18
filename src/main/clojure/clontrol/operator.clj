@@ -8,7 +8,7 @@
    [clontrol.analyzer.parser
     :refer [parse-local-bindings]]
    [clontrol.analyzer.pass.cps-form-emitter
-    :refer [run-cps-form-emitter]]))
+    :refer [run-cps-expression-emitter]]))
 
 (defn- emit-reset-to
   "Generates code for a continuation prompt executing `body-form` and yielding its
@@ -23,7 +23,7 @@
            :cps-form-emitter/thunk-recur? true}
           :locals local-bindings
           :context :ctx/expr})]
-    (binding [*scheduled-pass* run-cps-form-emitter]
+    (binding [*scheduled-pass* run-cps-expression-emitter]
       (analyzer/analyze body-form local-environment))))
 
 ;;;; * Prompt macros

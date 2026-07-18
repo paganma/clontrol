@@ -13,7 +13,7 @@
     :refer [symbol->parameter-binding
             parse-local-bindings]]
    [clontrol.analyzer.pass.cps-form-emitter
-    :refer [run-cps-form-emitter]]))
+    :refer [run-cps-function-body-emitter]]))
 
 ;;;; * Function macros
 ;;; Parsing logic adapted from Clojure's [[fn/defn]] implementation.
@@ -116,9 +116,9 @@
    (let [continuation-symbol (gensym "k__")]
      `(fn*
        ~name-symbol
-       ~@(for [[parameter-symbols & body-forms] arity-forms]
-           (let [body-form
-                 (list* 'do body-forms)
+       ~@(for [[parameter-symbols & bodys] arity-forms]
+           (let [body
+                 (list* 'do bodys)
                  local-bindings
                  (assoc local-bindings name-symbol (symbol->parameter-binding name-symbol))
                  local-bindings
@@ -142,8 +142,8 @@
                    :parameters parameter-symbols})]
              `([~continuation-symbol ~@parameter-symbols]
                ~(return-body
-                 (binding [*scheduled-pass* run-cps-form-emitter]
-                   (analyzer/analyze body-form local-environment))))))))))
+                 (binding [*scheduled-pass* run-cps-function-body-emitter]
+                   (analyzer/analyze body local-environment))))))))))
 
 (defmacro fn-cps
   "Constructor for a CPS function.
@@ -188,11 +188,11 @@
         (assoc local-bindings name-symbol (symbol->parameter-binding name-symbol))]
     `(Shifter.
       ~(emit-fn-cps
-        (fn [body-form]
+        (fn [body]
           (if name-symbol
             `(let* [~name-symbol (Shifter. ~loop-symbol)]
-               ~body-form)
-            body-form))
+               ~body)
+            body))
         loop-symbol
         arity-forms
         local-bindings))))

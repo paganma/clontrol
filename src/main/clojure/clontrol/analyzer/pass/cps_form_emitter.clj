@@ -122,9 +122,9 @@
   yielded. Defaults to ``identity`."
   {:pass-info
    {:walk :none
+    :after #{#'mark-recur-container}
     :depends #{#'mark-direct
                #'mark-pure
-               #'mark-recur-container
                #'tag-shadowings}}}
   ([node]
    (let [passes-options
@@ -138,9 +138,16 @@
    (let [plug (continuation-form->hole continuation-form)]
      (emit-with-implicit-loop return plug node))))
 
-(def run-cps-form-emitter
-  "Run `emit-cps-form` and related transformations."
+(def run-cps-expression-emitter
+  "Run `emit-cps-form` and related transformations for emitting an expression
+  form."
   (schedule #{#'emit-cps-form}))
+
+(def run-cps-function-body-emitter
+  "Run `emit-cps-form` and related transformations for emitting a function body
+  form. Uses [[mark-recur-container]] for detecting whether the function body
+  constitutes a loop."
+  (schedule #{#'emit-cps-form #'mark-recur-container}))
 
 (defn collect
   "Collects `emit`'s result over each `node` in `nodes`, yielding the vector of
