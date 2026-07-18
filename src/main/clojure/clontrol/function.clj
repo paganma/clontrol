@@ -138,7 +138,8 @@
                    :locals local-bindings
                    :context :ctx/return
                    :loop-id name-symbol
-                   :loop-locals (count parameter-symbols)})]
+                   :loop-locals (count parameter-symbols)
+                   :parameters parameter-symbols})]
              `([~continuation-symbol ~@parameter-symbols]
                ~(return-body
                  (binding [*scheduled-pass* run-cps-form-emitter]
