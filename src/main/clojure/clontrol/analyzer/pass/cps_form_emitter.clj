@@ -20,6 +20,8 @@
             prepend-statement]]
    [clontrol.analyzer.pass.pure-marker
     :refer [mark-pure]]
+   [clontrol.analyzer.pass.recur-container-marker
+    :refer [mark-recur-container]]
    [clontrol.analyzer.pass.shadowings-tagger
     :refer [tag-shadowings]]
    [clontrol.operator.thunk
@@ -92,6 +94,24 @@
     (*emit-direct* return plug node)
     (emit return plug node)))
 
+(defn emit-with-implicit-loop
+  "Creates a `loop` form if `node` is a `:recur-container?`. Otherwise just emit
+  `node` in tail position."
+  [return plug node]
+  (if (:recur-container? node)
+    (let [{{loop-symbol :loop-id
+            parameter-symbols :parameters} :env} node]
+      (emit-tail
+       (fn [body-form]
+         (return
+          `(thunk/trampoline
+            ((fn ~loop-symbol ~parameter-symbols
+               ~body-form)
+             ~@parameter-symbols))))
+       plug
+       node))
+    (emit-tail return plug node)))
+
 (defn emit-cps-form
   "Emits the CPS form of `node` yielding its result to a continuation form. 
   
@@ -104,6 +124,7 @@
    {:walk :none
     :depends #{#'mark-direct
                #'mark-pure
+               #'mark-recur-container
                #'tag-shadowings}}}
   ([node]
    (let [passes-options
@@ -115,7 +136,7 @@
    (trampoline emit-cps-form identity node continuation-form))
   ([return node continuation-form]
    (let [plug (continuation-form->hole continuation-form)]
-     (emit-tail return plug node))))
+     (emit-with-implicit-loop return plug node))))
 
 (def run-cps-form-emitter
   "Run `emit-cps-form` and related transformations."
