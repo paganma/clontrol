@@ -100,7 +100,7 @@
   [return plug node]
   (if (:recur-container? node)
     (let [{{loop-symbol :loop-id
-            parameter-symbols :parameters} :env} node]
+            parameter-symbols :loop-parameters} :env} node]
       (emit-tail
        (fn [body-form]
          (return

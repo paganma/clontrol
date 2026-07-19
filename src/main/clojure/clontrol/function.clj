@@ -116,9 +116,11 @@
    (let [continuation-symbol (gensym "k__")]
      `(fn*
        ~name-symbol
-       ~@(for [[parameter-symbols & bodys] arity-forms]
-           (let [body
-                 (list* 'do bodys)
+       ~@(for [[parameter-symbols & body-forms] arity-forms]
+           (let [loop-parameter-symbols
+                 (into [] (remove #{'&}) parameter-symbols)
+                 body
+                 (list* 'do body-forms)
                  local-bindings
                  (assoc local-bindings name-symbol (symbol->parameter-binding name-symbol))
                  local-bindings
@@ -127,7 +129,7 @@
                   (map
                    (fn [parameter-symbol]
                      [parameter-symbol (symbol->parameter-binding parameter-symbol)]))
-                  parameter-symbols)
+                  loop-parameter-symbols)
                  local-environment
                  (merge
                   (*make-local-environment*)
@@ -138,8 +140,8 @@
                    :locals local-bindings
                    :context :ctx/return
                    :loop-id name-symbol
-                   :loop-locals (count parameter-symbols)
-                   :parameters parameter-symbols})]
+                   :loop-locals (count loop-parameter-symbols)
+                   :loop-parameters loop-parameter-symbols})]
              `([~continuation-symbol ~@parameter-symbols]
                ~(return-body
                  (binding [*scheduled-pass* run-cps-function-body-emitter]

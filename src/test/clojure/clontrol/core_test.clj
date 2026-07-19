@@ -145,4 +145,12 @@
                        (recur (dec x))
                        (shift (fn [_] 2))))]
               (g 10)))
+           2))
+    (is (= (reset
+            (let [f (fn-shift
+                     [x & ys]
+                     (if (> x 0)
+                       (recur (dec x) ys)
+                       (shift (fn [_] 2))))]
+              (f 100 3 2 1)))
            2))))
